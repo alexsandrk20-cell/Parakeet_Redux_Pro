@@ -614,29 +614,43 @@ def format_time_vtt(seconds: float) -> str:
         ms = 999
     return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
 
-def generate_srt(segments: list[dict], word_level: bool = False, remove_punct: bool = False, case_mode: str = "none", replace_yo_flag: bool = False) -> str:
-    """Generates SubRip (.srt) subtitle content from segments or word-level timing."""
-    lines = []
-    idx = 1
+def generate_srt(segments: list[dict], word_level: bool = False, remove_punct: bool = False, case_mode: str = "none", replace_yo_flag: bool = False, no_gaps: bool = False) -> str:
+    """Generates SubRip (.srt) subtitle content from segments or word-level timing, with optional gapless mode."""
+    items = []
     if word_level:
         for seg in segments:
             for w in seg.get("words", []):
                 word_text = process_word(w.get("word", ""), remove_punct, case_mode, replace_yo_flag)
                 if not word_text:
                     continue
-                start = format_time_srt(w.get("start", 0.0))
-                end = format_time_srt(w.get("end", 0.0))
-                lines.append(f"{idx}\n{start} --> {end}\n{word_text}\n")
-                idx += 1
+                items.append({
+                    "start": float(w.get("start", 0.0)),
+                    "end": float(w.get("end", 0.0)),
+                    "text": word_text
+                })
     else:
         for seg in segments:
             text = process_text(seg.get("text", ""), remove_punct, case_mode, replace_yo_flag)
             if not text:
                 continue
-            start = format_time_srt(seg.get("start", 0.0))
-            end = format_time_srt(seg.get("end", 0.0))
-            lines.append(f"{idx}\n{start} --> {end}\n{text}\n")
-            idx += 1
+            items.append({
+                "start": float(seg.get("start", 0.0)),
+                "end": float(seg.get("end", 0.0)),
+                "text": text
+            })
+            
+    if not items:
+        return ""
+        
+    if no_gaps:
+        for i in range(len(items) - 1):
+            items[i]["end"] = max(items[i]["start"] + 0.05, items[i + 1]["start"])
+
+    lines = []
+    for idx, item in enumerate(items, 1):
+        s_str = format_time_srt(item["start"])
+        e_str = format_time_srt(item["end"])
+        lines.append(f"{idx}\n{s_str} --> {e_str}\n{item['text']}\n")
     return "\n".join(lines)
 
 def generate_vtt(segments: list[dict], word_level: bool = False, remove_punct: bool = False, case_mode: str = "none", replace_yo_flag: bool = False) -> str:
@@ -1149,6 +1163,11 @@ with st.sidebar:
         value=True,
         help="Автоматически заменяет все буквы «ё» и «Ё» на «е» и «Е» в тексте и субтитрах"
     )
+    remove_pauses_default = st.checkbox(
+        "⚡ Убрать паузы между субтитрами",
+        value=True,
+        help="Режим «Без пауз» (Gapless): устраняет зазоры между титрами, растягивая каждый блок до начала следующего"
+    )
     case_mode = st.radio(
         "Регистр букв (Case):",
         options=["upper", "none", "lower", "title"],
@@ -1436,8 +1455,10 @@ if uploaded_file is not None:
                 st.info("В выбранном режиме пословные таймкоды не формировались. Переключите режим в боковом меню на 'По словам и предложениям'.")
         
         # Generate subtitle formats with punct stripping, filler removal, case formatting, and yo-replacement
-        srt_standard = generate_srt(processed_segments, word_level=False, remove_punct=remove_punctuation, case_mode=case_mode, replace_yo_flag=replace_yo_char)
-        srt_word_level = generate_srt(processed_segments, word_level=True, remove_punct=remove_punctuation, case_mode=case_mode, replace_yo_flag=replace_yo_char) if all_words_list else ""
+        srt_standard = generate_srt(processed_segments, word_level=False, remove_punct=remove_punctuation, case_mode=case_mode, replace_yo_flag=replace_yo_char, no_gaps=False)
+        srt_standard_gapless = generate_srt(processed_segments, word_level=False, remove_punct=remove_punctuation, case_mode=case_mode, replace_yo_flag=replace_yo_char, no_gaps=True)
+        srt_word_level = generate_srt(processed_segments, word_level=True, remove_punct=remove_punctuation, case_mode=case_mode, replace_yo_flag=replace_yo_char, no_gaps=False) if all_words_list else ""
+        srt_word_level_gapless = generate_srt(processed_segments, word_level=True, remove_punct=remove_punctuation, case_mode=case_mode, replace_yo_flag=replace_yo_char, no_gaps=True) if all_words_list else ""
         vtt_standard = generate_vtt(processed_segments, word_level=False, remove_punct=remove_punctuation, case_mode=case_mode, replace_yo_flag=replace_yo_char)
         vtt_word_level = generate_vtt(processed_segments, word_level=True, remove_punct=remove_punctuation, case_mode=case_mode, replace_yo_flag=replace_yo_char) if all_words_list else ""
         
@@ -1466,28 +1487,64 @@ if uploaded_file is not None:
 
         # Tab 3: Subtitles preview
         with tab_subtitles:
-            st.markdown("#### 📱 Клиповые субтитры 9:16 (Shorts / Reels / TikTok)")
+            top_h1, top_h2 = st.columns([1, 1])
+            with top_h1:
+                st.markdown("#### 📱 Клиповые субтитры 9:16 (Shorts / Reels / TikTok)")
+            with top_h2:
+                remove_gaps_toggle = st.toggle(
+                    "⚡ Убрать паузы (Режим без пауз / Gapless)",
+                    value=remove_pauses_default,
+                    help="Устраняет любые зазоры между титрами: титры идут непрерывным потоком без черных кадров"
+                )
+
+            if remove_gaps_toggle:
+                st.success("⚡ Режим «УБРАТЬ ПАУЗЫ» активен: конец каждого титра состыкован со стартом следующего без зазоров.")
+            else:
+                st.info("⏱️ Режим «С паузами»: сохранены естественные паузы тишины между репликами.")
+
+            # Dedicated prominent button right in Tab 3
+            btn_t1, btn_t2 = st.columns(2)
+            with btn_t1:
+                st.download_button(
+                    label="⚡ КНОПКА: УБРАТЬ ПАУЗЫ (Скачать 9:16 .srt)",
+                    data=srt_9_16_gapless,
+                    file_name=f"{base_name}_9_16_no_pauses.srt",
+                    mime="text/plain",
+                    use_container_width=True,
+                    type="primary",
+                    help="Скачать субтитры 9:16 без зазоров между фразами для моментального монтажа"
+                )
+            with btn_t2:
+                st.download_button(
+                    label="📱 Скачать 9:16 с паузами (.srt)",
+                    data=srt_9_16,
+                    file_name=f"{base_name}_9_16_with_pauses.srt",
+                    mime="text/plain",
+                    use_container_width=True,
+                    help="Субтитры 9:16 с сохранением естественных пауз"
+                )
+
             st.caption("Оптимизировано для вертикального видео: 1 строка на блок (до 20 знаков), предлоги и союзы перенесены вперед, длинные слова стоят отдельно.")
             sub_916_col1, sub_916_col2 = st.columns(2)
             with sub_916_col1:
                 st.markdown("##### ⚡ 9:16 Без пауз (Рекомендуется для Reels/Shorts)")
                 st.caption("Каждый блок продлен до старта следующего (без темного экрана и мигания).")
-                st.text_area("9:16 Gapless SRT Preview", srt_9_16_gapless, height=280)
+                st.text_area("9:16 Gapless SRT Preview", srt_9_16_gapless, height=260)
             with sub_916_col2:
                 st.markdown("##### ⏱️ 9:16 С естественными паузами")
                 st.caption("Таймкоды сохраняют зазоры и естественные паузы между фразами.")
-                st.text_area("9:16 Standard SRT Preview", srt_9_16, height=280)
+                st.text_area("9:16 Standard SRT Preview", srt_9_16, height=260)
 
             st.markdown("---")
             st.markdown("#### 🎬 Другие форматы субтитров")
             sub_col1, sub_col2 = st.columns(2)
             with sub_col1:
                 st.markdown("##### 📄 Стандартные субтитры (по предложениям)")
-                st.text_area("SRT Preview", srt_standard, height=240)
+                st.text_area("SRT Preview", srt_standard_gapless if remove_gaps_toggle else srt_standard, height=240)
             with sub_col2:
                 st.markdown("##### ⏱️ Пословные субтитры (Караоке / Word-by-Word)")
                 if srt_word_level:
-                    st.text_area("Word-level SRT Preview", srt_word_level, height=240)
+                    st.text_area("Word-level SRT Preview", srt_word_level_gapless if remove_gaps_toggle else srt_word_level, height=240)
                 else:
                     st.info("Пословные субтитры доступны при выборе режима 'По словам'.")
         
@@ -1570,10 +1627,14 @@ if uploaded_file is not None:
         os.makedirs("outputs", exist_ok=True)
         with open(os.path.join("outputs", "outputs.md"), "w", encoding="utf-8") as f:
             f.write(full_report)
+        with open(os.path.join("outputs", "subtitles_9_16_no_pauses.srt"), "w", encoding="utf-8") as f:
+            f.write(srt_9_16_gapless)
         with open(os.path.join("outputs", "subtitles_9_16_gapless.srt"), "w", encoding="utf-8") as f:
             f.write(srt_9_16_gapless)
         with open(os.path.join("outputs", "subtitles_9_16.srt"), "w", encoding="utf-8") as f:
             f.write(srt_9_16)
+        with open(os.path.join("outputs", "subtitles_no_pauses.srt"), "w", encoding="utf-8") as f:
+            f.write(srt_standard_gapless)
         with open(os.path.join("outputs", "subtitles.srt"), "w", encoding="utf-8") as f:
             f.write(srt_standard)
         if srt_word_level:
@@ -1586,20 +1647,21 @@ if uploaded_file is not None:
         st.markdown("---")
         st.subheader("📥 Скачать результаты")
 
-        st.markdown("##### 📱 Субтитры для вертикальных видео (Shorts / Reels / TikTok 9:16)")
+        st.markdown("##### 📱 Клиповые субтитры 9:16 (Shorts / Reels / TikTok)")
         v_col1, v_col2 = st.columns(2)
         v_col1.download_button(
-            label="⚡ 9:16 Без пауз (.srt)",
+            label="⚡ КНОПКА: УБРАТЬ ПАУЗЫ (9:16 .srt)",
             data=srt_9_16_gapless,
-            file_name=f"{base_name}_9_16_gapless.srt",
+            file_name=f"{base_name}_9_16_no_pauses.srt",
             mime="text/plain",
             use_container_width=True,
+            type="primary",
             help="Рекомендуется для Reels/Shorts: таймкоды без разрывов, субтитры не моргают"
         )
         v_col2.download_button(
             label="📱 9:16 С паузами (.srt)",
             data=srt_9_16,
-            file_name=f"{base_name}_9_16.srt",
+            file_name=f"{base_name}_9_16_with_pauses.srt",
             mime="text/plain",
             use_container_width=True,
             help="Субтитры 9:16 с сохранением естественных пауз тишины"
@@ -1610,7 +1672,7 @@ if uploaded_file is not None:
         
         dcol1.download_button(
             label="🎬 Обычные (.srt)",
-            data=srt_standard,
+            data=srt_standard_gapless if remove_gaps_toggle else srt_standard,
             file_name=f"{base_name}.srt",
             mime="text/plain",
             use_container_width=True
@@ -1618,7 +1680,7 @@ if uploaded_file is not None:
         if srt_word_level:
             dcol2.download_button(
                 label="⏱️ Пословный SRT (.srt)",
-                data=srt_word_level,
+                data=srt_word_level_gapless if remove_gaps_toggle else srt_word_level,
                 file_name=f"{base_name}_words.srt",
                 mime="text/plain",
                 use_container_width=True
