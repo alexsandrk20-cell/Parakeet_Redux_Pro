@@ -219,9 +219,15 @@ def filter_text_fillers(text: str, single_words: set[str], multi_phrases: list[l
     filtered = filter_words(words, single_words, multi_phrases)
     return " ".join(w["word"] for w in filtered)
 
-def process_text(text: str, remove_punct: bool = False, case_mode: str = "none") -> str:
-    """Applies text formatting options (punctuation removal, case formatting)."""
+def replace_yo(text: str) -> str:
+    """Replaces Cyrillic 'ё' and 'Ё' with 'е' and 'Е'."""
+    return text.replace("ё", "е").replace("Ё", "Е")
+
+def process_text(text: str, remove_punct: bool = False, case_mode: str = "none", replace_yo_flag: bool = False) -> str:
+    """Applies text formatting options (punctuation removal, case formatting, yo-replacement)."""
     res = text
+    if replace_yo_flag:
+        res = replace_yo(res)
     if remove_punct:
         res = strip_punctuation_from_text(res)
     if case_mode == "upper":
@@ -232,9 +238,11 @@ def process_text(text: str, remove_punct: bool = False, case_mode: str = "none")
         res = res.title()
     return res
 
-def process_word(word: str, remove_punct: bool = False, case_mode: str = "none") -> str:
-    """Applies word token formatting options."""
+def process_word(word: str, remove_punct: bool = False, case_mode: str = "none", replace_yo_flag: bool = False) -> str:
+    """Applies word token formatting options (punctuation removal, case formatting, yo-replacement)."""
     res = word
+    if replace_yo_flag:
+        res = replace_yo(res)
     if remove_punct:
         res = strip_punctuation_from_word(res)
     if case_mode == "upper":
@@ -606,14 +614,14 @@ def format_time_vtt(seconds: float) -> str:
         ms = 999
     return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
 
-def generate_srt(segments: list[dict], word_level: bool = False, remove_punct: bool = False, case_mode: str = "none") -> str:
+def generate_srt(segments: list[dict], word_level: bool = False, remove_punct: bool = False, case_mode: str = "none", replace_yo_flag: bool = False) -> str:
     """Generates SubRip (.srt) subtitle content from segments or word-level timing."""
     lines = []
     idx = 1
     if word_level:
         for seg in segments:
             for w in seg.get("words", []):
-                word_text = process_word(w.get("word", ""), remove_punct, case_mode)
+                word_text = process_word(w.get("word", ""), remove_punct, case_mode, replace_yo_flag)
                 if not word_text:
                     continue
                 start = format_time_srt(w.get("start", 0.0))
@@ -622,7 +630,7 @@ def generate_srt(segments: list[dict], word_level: bool = False, remove_punct: b
                 idx += 1
     else:
         for seg in segments:
-            text = process_text(seg.get("text", ""), remove_punct, case_mode)
+            text = process_text(seg.get("text", ""), remove_punct, case_mode, replace_yo_flag)
             if not text:
                 continue
             start = format_time_srt(seg.get("start", 0.0))
@@ -631,14 +639,14 @@ def generate_srt(segments: list[dict], word_level: bool = False, remove_punct: b
             idx += 1
     return "\n".join(lines)
 
-def generate_vtt(segments: list[dict], word_level: bool = False, remove_punct: bool = False, case_mode: str = "none") -> str:
+def generate_vtt(segments: list[dict], word_level: bool = False, remove_punct: bool = False, case_mode: str = "none", replace_yo_flag: bool = False) -> str:
     """Generates WebVTT (.vtt) subtitle content from segments or word-level timing."""
     lines = ["WEBVTT\n"]
     idx = 1
     if word_level:
         for seg in segments:
             for w in seg.get("words", []):
-                word_text = process_word(w.get("word", ""), remove_punct, case_mode)
+                word_text = process_word(w.get("word", ""), remove_punct, case_mode, replace_yo_flag)
                 if not word_text:
                     continue
                 start = format_time_vtt(w.get("start", 0.0))
@@ -647,7 +655,7 @@ def generate_vtt(segments: list[dict], word_level: bool = False, remove_punct: b
                 idx += 1
     else:
         for seg in segments:
-            text = process_text(seg.get("text", ""), remove_punct, case_mode)
+            text = process_text(seg.get("text", ""), remove_punct, case_mode, replace_yo_flag)
             if not text:
                 continue
             start = format_time_vtt(seg.get("start", 0.0))
@@ -655,6 +663,268 @@ def generate_vtt(segments: list[dict], word_level: bool = False, remove_punct: b
             lines.append(f"{idx}\n{start} --> {end}\n{text}\n")
             idx += 1
     return "\n".join(lines)
+
+RUSSIAN_PREPOSITIONS = {
+    "в", "во", "с", "со", "к", "ко", "о", "об", "обо", "у", "на", "по", "от", "ото",
+    "до", "из", "изо", "за", "под", "подо", "над", "надо", "при", "про", "без", "безо",
+    "для", "через", "сквозь", "перед", "передо", "ради", "около", "возле", "среди",
+    "вокруг", "между", "из-за", "из-под"
+}
+
+ENGLISH_PREPOSITIONS = {
+    "in", "on", "at", "to", "for", "with", "by", "from", "of", "about",
+    "into", "through", "under", "over", "before", "after", "between"
+}
+
+ALL_PREPOSITIONS = RUSSIAN_PREPOSITIONS | ENGLISH_PREPOSITIONS
+
+CLAUSE_STARTERS = {
+    "когда", "если", "что", "чтобы", "потому", "как", "где", "куда", "откуда",
+    "хотя", "зачем", "почему", "который", "которая", "которое", "которые",
+    "when", "if", "that", "because", "how", "where", "why", "which"
+}
+
+SUBJECT_PRONOUNS = {"я", "мы", "ты", "вы", "он", "она", "оно", "они"}
+SHORT_CONJUNCTIONS = {"и", "а", "но", "или", "да"}
+
+def clean_word_token(word: str) -> str:
+    """Removes punctuation symbols while preserving internal hyphens."""
+    return "".join(ch for ch in word if ch.isalnum() or ch == "-")
+
+def is_preposition(word: str) -> bool:
+    """Checks whether token is a known preposition."""
+    return clean_word_token(word).lower() in ALL_PREPOSITIONS
+
+def is_clause_starter(word: str) -> bool:
+    """Checks whether token is a clause starter (e.g. когда, если, чтобы)."""
+    return clean_word_token(word).lower() in CLAUSE_STARTERS
+
+def is_subject_pronoun(word: str) -> bool:
+    """Checks whether token is a personal subject pronoun (я, мы, ты, etc.)."""
+    return clean_word_token(word).lower() in SUBJECT_PRONOUNS
+
+def extract_words_for_vertical_9_16(segments: list[dict]) -> list[dict]:
+    """Extracts a flat list of words with timestamps from segments, estimating timestamps if missing."""
+    words = []
+    for seg in segments:
+        seg_words = seg.get("words", [])
+        if seg_words:
+            for w in seg_words:
+                raw_w = w.get("word", "").strip()
+                if raw_w:
+                    words.append({
+                        "word": raw_w,
+                        "start": float(w.get("start", seg.get("start", 0.0))),
+                        "end": float(w.get("end", seg.get("end", 0.0)))
+                    })
+        else:
+            text = seg.get("text", "").strip()
+            tokens = text.split()
+            if tokens:
+                s = float(seg.get("start", 0.0))
+                e = float(seg.get("end", s + 1.0))
+                dur = max(0.1, e - s)
+                w_dur = dur / len(tokens)
+                for idx, tok in enumerate(tokens):
+                    words.append({
+                        "word": tok,
+                        "start": s + idx * w_dur,
+                        "end": s + (idx + 1) * w_dur
+                    })
+    return words
+
+def chunk_words_for_vertical_9_16(
+    words: list[dict],
+    max_chars: int = 20,
+    max_words: int = 4,
+    stand_alone_word_len: int = 12
+) -> list[list[dict]]:
+    """
+    Chunks words for 9:16 vertical video subtitles (Shorts / Reels / TikTok):
+    - Short words grouped up to max_words (default 4) and max_chars (default 20).
+    - Long words (>= stand_alone_word_len, default 12) placed alone on single line.
+    - Prepositions always start a new line with their phrase (never dangling at line end).
+    - Clause starters ('когда', 'если') and subject pronouns ('мы', 'я') start a new chunk.
+    - Strictly single line per SRT block with individual timing.
+    """
+    if not words:
+        return []
+
+    chunks = []
+    current_chunk = []
+
+    def get_chunk_text(chunk: list[dict]) -> str:
+        return " ".join(clean_word_token(w["word"]) for w in chunk)
+
+    i = 0
+    n = len(words)
+    while i < n:
+        w = words[i]
+        raw_word = w.get("word", "").strip()
+        if not raw_word:
+            i += 1
+            continue
+
+        clean_w = clean_word_token(raw_word)
+        w_len = len(clean_w)
+        is_prep = is_preposition(raw_word)
+        is_starter = is_clause_starter(raw_word)
+        is_pron = is_subject_pronoun(raw_word)
+
+        if not current_chunk:
+            if w_len >= stand_alone_word_len:
+                chunks.append([w])
+                i += 1
+                continue
+            current_chunk.append(w)
+            i += 1
+            continue
+
+        cur_text = get_chunk_text(current_chunk)
+        new_text = cur_text + " " + clean_w
+        new_word_count = len(current_chunk) + 1
+
+        prev_raw = current_chunk[-1].get("word", "")
+        prev_clean = clean_word_token(prev_raw).lower()
+        prev_is_sentence_end = bool(prev_raw and prev_raw[-1] in ".!?;:")
+
+        # 1. Sentence ending punctuation (.!?;)
+        if prev_is_sentence_end:
+            chunks.append(current_chunk)
+            current_chunk = [w]
+            i += 1
+            continue
+
+        # 2. Clause starter like 'когда', 'если', 'чтобы'
+        if is_starter:
+            chunks.append(current_chunk)
+            current_chunk = [w]
+            i += 1
+            continue
+
+        # 3. Subject pronoun ('мы', 'я', etc.) starting a new clause after a noun/verb
+        if is_pron and (prev_raw.endswith(",") or (len(current_chunk) >= 1 and prev_clean not in ALL_PREPOSITIONS and prev_clean not in CLAUSE_STARTERS)):
+            chunks.append(current_chunk)
+            current_chunk = [w]
+            i += 1
+            continue
+
+        # 4. Standalone long word (>= 12 chars like ПРИВЕТСТВОВАТЬ)
+        if w_len >= stand_alone_word_len:
+            if len(current_chunk) == 1 and is_preposition(current_chunk[0].get("word", "")) and len(new_text) <= max_chars:
+                current_chunk.append(w)
+                chunks.append(current_chunk)
+                current_chunk = []
+                i += 1
+                continue
+            else:
+                chunks.append(current_chunk)
+                chunks.append([w])
+                current_chunk = []
+                i += 1
+                continue
+
+        # 5. Current word is a preposition
+        if is_prep:
+            if len(current_chunk) >= 2 or len(cur_text) >= 10:
+                chunks.append(current_chunk)
+                current_chunk = [w]
+                i += 1
+                continue
+            if i + 1 < n:
+                next_clean = clean_word_token(words[i + 1].get("word", ""))
+                if len(cur_text) + 1 + len(clean_w) + 1 + len(next_clean) > max_chars:
+                    chunks.append(current_chunk)
+                    current_chunk = [w]
+                    i += 1
+                    continue
+
+        # 6. Next word is a preposition and would cause overflow or current is already complete
+        if i + 1 < n and is_preposition(words[i + 1].get("word", "")):
+            if len(current_chunk) >= 2 or len(cur_text) >= 10:
+                chunks.append(current_chunk)
+                current_chunk = [w]
+                i += 1
+                continue
+
+        # 7. Max characters or max words exceeded
+        if len(new_text) > max_chars or new_word_count > max_words:
+            chunks.append(current_chunk)
+            current_chunk = [w]
+            i += 1
+            continue
+
+        current_chunk.append(w)
+        i += 1
+
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    # Safety pass: Ensure NO chunk ends with a dangling preposition or short conjunction
+    final_chunks = []
+    for idx, c in enumerate(chunks):
+        if len(c) > 1 and (is_preposition(c[-1].get("word", "")) or clean_word_token(c[-1].get("word", "")).lower() in SHORT_CONJUNCTIONS):
+            dangling = c.pop()
+            if idx + 1 < len(chunks):
+                chunks[idx + 1].insert(0, dangling)
+            else:
+                c.append(dangling)
+        if c:
+            final_chunks.append(c)
+
+    return final_chunks
+
+def generate_srt_vertical_9_16(
+    chunks: list[list[dict]],
+    no_gaps: bool = False,
+    case_mode: str = "upper",
+    remove_punct: bool = True,
+    replace_yo_flag: bool = True
+) -> str:
+    """
+    Generates single-line SubRip (.srt) subtitles optimized for 9:16 vertical videos.
+    If no_gaps=True, extends end times of subtitles to the start time of the next subtitle,
+    eliminating timeline gaps (караоке-лента без мерцания и пустых экранов).
+    """
+    items = []
+    for chunk in chunks:
+        if not chunk:
+            continue
+        start = chunk[0].get("start", 0.0)
+        end = chunk[-1].get("end", start + 0.5)
+        words_text = []
+        for w in chunk:
+            clean_w = process_word(
+                w.get("word", ""),
+                remove_punct=remove_punct,
+                case_mode=case_mode,
+                replace_yo_flag=replace_yo_flag
+            )
+            if clean_w:
+                words_text.append(clean_w)
+                
+        line_str = " ".join(words_text).strip()
+        if line_str:
+            items.append({
+                "start": start,
+                "end": max(end, start + 0.1),
+                "text": line_str
+            })
+
+    if not items:
+        return ""
+
+    if no_gaps:
+        for i in range(len(items) - 1):
+            items[i]["end"] = max(items[i]["start"] + 0.05, items[i + 1]["start"])
+
+    srt_entries = []
+    for idx, item in enumerate(items, 1):
+        s_str = format_time_srt(item["start"])
+        e_str = format_time_srt(item["end"])
+        srt_entries.append(f"{idx}\n{s_str} --> {e_str}\n{item['text']}\n")
+
+    return "\n".join(srt_entries)
 
 def convert_to_wav(input_path: str, output_path: str) -> float:
     """Uses system FFmpeg to convert media input to a clean 16kHz Mono PCM WAV audio file. Returns conversion duration in seconds."""
@@ -874,6 +1144,11 @@ with st.sidebar:
         value=True,
         help="Удаляет точки, запятые, тире, кавычки и знаки препинания, сохраняя внутрисловные дефисы (наконец-то, из-за, по-русски)"
     )
+    replace_yo_char = st.checkbox(
+        "🔤 Заменять букву «ё» на «е»",
+        value=True,
+        help="Автоматически заменяет все буквы «ё» и «Ё» на «е» и «Е» в тексте и субтитрах"
+    )
     case_mode = st.radio(
         "Регистр букв (Case):",
         options=["upper", "none", "lower", "title"],
@@ -886,6 +1161,11 @@ with st.sidebar:
         index=0,
         help="Выберите форматирование регистра для слов и субтитров"
     )
+    
+    with st.expander("📱 Настройки субтитров 9:16 (Shorts / Reels)", expanded=False):
+        max_chars_9_16 = st.slider("Макс. символов в строке:", min_value=12, max_value=30, value=20, step=1, help="Рекомендуется 18-22 символа для идеального отображения в Shorts / Reels")
+        max_words_9_16 = st.slider("Макс. слов в блоке:", min_value=2, max_value=6, value=4, step=1, help="Объединять до указанного числа коротких слов (по умолчанию 4)")
+        standalone_len_9_16 = st.slider("Длина одиночного слова:", min_value=8, max_value=16, value=12, step=1, help="Слова длиннее этого значения будут стоять отдельной строкой (по умолчанию 12)")
     
     st.markdown("---")
     st.markdown(
@@ -1087,7 +1367,7 @@ if uploaded_file is not None:
         with tab_segments:
             # Full text box for quick reading and copying
             full_clean_text = " ".join([
-                process_text(s.get("text", ""), remove_punctuation, case_mode)
+                process_text(s.get("text", ""), remove_punctuation, case_mode, replace_yo_char)
                 for s in processed_segments
                 if s.get("text", "").strip()
             ])
@@ -1106,7 +1386,7 @@ if uploaded_file is not None:
                 start = segment.get("start", 0.0)
                 end = segment.get("end", 0.0)
                 raw_text = segment.get("text", "").strip()
-                display_text = process_text(raw_text, remove_punctuation, case_mode)
+                display_text = process_text(raw_text, remove_punctuation, case_mode, replace_yo_char)
                 words = segment.get("words", [])
                 
                 start_str = format_time_display(start)
@@ -1119,7 +1399,7 @@ if uploaded_file is not None:
                     with st.expander(f"🔍 Пословные метки фрагмента #{idx} ({len(words)} слов)", expanded=False):
                         word_chips = []
                         for w in words:
-                            w_text = process_word(w.get("word", ""), remove_punctuation, case_mode)
+                            w_text = process_word(w.get("word", ""), remove_punctuation, case_mode, replace_yo_char)
                             if not w_text:
                                 continue
                             w_start = w.get("start", 0.0)
@@ -1131,7 +1411,7 @@ if uploaded_file is not None:
         all_words_list = []
         for s_idx, segment in enumerate(processed_segments, 1):
             for w in segment.get("words", []):
-                w_text = process_word(w.get("word", ""), remove_punctuation, case_mode)
+                w_text = process_word(w.get("word", ""), remove_punctuation, case_mode, replace_yo_char)
                 if not w_text:
                     continue
                 w_start = w.get("start", 0.0)
@@ -1155,22 +1435,59 @@ if uploaded_file is not None:
             else:
                 st.info("В выбранном режиме пословные таймкоды не формировались. Переключите режим в боковом меню на 'По словам и предложениям'.")
         
-        # Generate subtitle formats with punct stripping, filler removal, and case formatting
-        srt_standard = generate_srt(processed_segments, word_level=False, remove_punct=remove_punctuation, case_mode=case_mode)
-        srt_word_level = generate_srt(processed_segments, word_level=True, remove_punct=remove_punctuation, case_mode=case_mode) if all_words_list else ""
-        vtt_standard = generate_vtt(processed_segments, word_level=False, remove_punct=remove_punctuation, case_mode=case_mode)
-        vtt_word_level = generate_vtt(processed_segments, word_level=True, remove_punct=remove_punctuation, case_mode=case_mode) if all_words_list else ""
+        # Generate subtitle formats with punct stripping, filler removal, case formatting, and yo-replacement
+        srt_standard = generate_srt(processed_segments, word_level=False, remove_punct=remove_punctuation, case_mode=case_mode, replace_yo_flag=replace_yo_char)
+        srt_word_level = generate_srt(processed_segments, word_level=True, remove_punct=remove_punctuation, case_mode=case_mode, replace_yo_flag=replace_yo_char) if all_words_list else ""
+        vtt_standard = generate_vtt(processed_segments, word_level=False, remove_punct=remove_punctuation, case_mode=case_mode, replace_yo_flag=replace_yo_char)
+        vtt_word_level = generate_vtt(processed_segments, word_level=True, remove_punct=remove_punctuation, case_mode=case_mode, replace_yo_flag=replace_yo_char) if all_words_list else ""
         
+        # 9:16 Vertical video subtitles (Shorts / Reels / TikTok)
+        words_9_16 = extract_words_for_vertical_9_16(processed_segments)
+        chunks_9_16 = chunk_words_for_vertical_9_16(
+            words_9_16,
+            max_chars=max_chars_9_16,
+            max_words=max_words_9_16,
+            stand_alone_word_len=standalone_len_9_16
+        )
+        srt_9_16_gapless = generate_srt_vertical_9_16(
+            chunks_9_16,
+            no_gaps=True,
+            case_mode=case_mode,
+            remove_punct=remove_punctuation,
+            replace_yo_flag=replace_yo_char
+        )
+        srt_9_16 = generate_srt_vertical_9_16(
+            chunks_9_16,
+            no_gaps=False,
+            case_mode=case_mode,
+            remove_punct=remove_punctuation,
+            replace_yo_flag=replace_yo_char
+        )
+
         # Tab 3: Subtitles preview
         with tab_subtitles:
+            st.markdown("#### 📱 Клиповые субтитры 9:16 (Shorts / Reels / TikTok)")
+            st.caption("Оптимизировано для вертикального видео: 1 строка на блок (до 20 знаков), предлоги и союзы перенесены вперед, длинные слова стоят отдельно.")
+            sub_916_col1, sub_916_col2 = st.columns(2)
+            with sub_916_col1:
+                st.markdown("##### ⚡ 9:16 Без пауз (Рекомендуется для Reels/Shorts)")
+                st.caption("Каждый блок продлен до старта следующего (без темного экрана и мигания).")
+                st.text_area("9:16 Gapless SRT Preview", srt_9_16_gapless, height=280)
+            with sub_916_col2:
+                st.markdown("##### ⏱️ 9:16 С естественными паузами")
+                st.caption("Таймкоды сохраняют зазоры и естественные паузы между фразами.")
+                st.text_area("9:16 Standard SRT Preview", srt_9_16, height=280)
+
+            st.markdown("---")
+            st.markdown("#### 🎬 Другие форматы субтитров")
             sub_col1, sub_col2 = st.columns(2)
             with sub_col1:
-                st.markdown("#### 📄 Стандартные субтитры (по предложениям)")
-                st.text_area("SRT Preview", srt_standard, height=300)
+                st.markdown("##### 📄 Стандартные субтитры (по предложениям)")
+                st.text_area("SRT Preview", srt_standard, height=240)
             with sub_col2:
-                st.markdown("#### ⏱️ Пословные субтитры (Караоке / Word-by-Word)")
+                st.markdown("##### ⏱️ Пословные субтитры (Караоке / Word-by-Word)")
                 if srt_word_level:
-                    st.text_area("Word-level SRT Preview", srt_word_level, height=300)
+                    st.text_area("Word-level SRT Preview", srt_word_level, height=240)
                 else:
                     st.info("Пословные субтитры доступны при выборе режима 'По словам'.")
         
@@ -1223,7 +1540,7 @@ if uploaded_file is not None:
         
         # Process JSON export with cleaned words and sentences
         processed_json = {
-            "text": "\n".join([process_text(s.get("text", ""), remove_punctuation, case_mode) for s in processed_segments]),
+            "text": "\n".join([process_text(s.get("text", ""), remove_punctuation, case_mode, replace_yo_char) for s in processed_segments]),
             "duration_seconds": duration_seconds,
             "ai_enhanced": ai_applied,
             "ai_provider": ai_provider if ai_applied else None,
@@ -1232,17 +1549,17 @@ if uploaded_file is not None:
         }
         for seg in processed_segments:
             s_dict = {
-                "text": process_text(seg.get("text", ""), remove_punctuation, case_mode),
+                "text": process_text(seg.get("text", ""), remove_punctuation, case_mode, replace_yo_char),
                 "start": seg.get("start"),
                 "end": seg.get("end"),
                 "words": [
                     {
-                        "word": process_word(w.get("word", ""), remove_punctuation, case_mode),
+                        "word": process_word(w.get("word", ""), remove_punctuation, case_mode, replace_yo_char),
                         "start": w.get("start"),
                         "end": w.get("end")
                     }
                     for w in seg.get("words", [])
-                    if process_word(w.get("word", ""), remove_punctuation, case_mode)
+                    if process_word(w.get("word", ""), remove_punctuation, case_mode, replace_yo_char)
                 ]
             }
             processed_json["segments"].append(s_dict)
@@ -1253,6 +1570,10 @@ if uploaded_file is not None:
         os.makedirs("outputs", exist_ok=True)
         with open(os.path.join("outputs", "outputs.md"), "w", encoding="utf-8") as f:
             f.write(full_report)
+        with open(os.path.join("outputs", "subtitles_9_16_gapless.srt"), "w", encoding="utf-8") as f:
+            f.write(srt_9_16_gapless)
+        with open(os.path.join("outputs", "subtitles_9_16.srt"), "w", encoding="utf-8") as f:
+            f.write(srt_9_16)
         with open(os.path.join("outputs", "subtitles.srt"), "w", encoding="utf-8") as f:
             f.write(srt_standard)
         if srt_word_level:
@@ -1264,35 +1585,60 @@ if uploaded_file is not None:
         # Download buttons
         st.markdown("---")
         st.subheader("📥 Скачать результаты")
+
+        st.markdown("##### 📱 Субтитры для вертикальных видео (Shorts / Reels / TikTok 9:16)")
+        v_col1, v_col2 = st.columns(2)
+        v_col1.download_button(
+            label="⚡ 9:16 Без пауз (.srt)",
+            data=srt_9_16_gapless,
+            file_name=f"{base_name}_9_16_gapless.srt",
+            mime="text/plain",
+            use_container_width=True,
+            help="Рекомендуется для Reels/Shorts: таймкоды без разрывов, субтитры не моргают"
+        )
+        v_col2.download_button(
+            label="📱 9:16 С паузами (.srt)",
+            data=srt_9_16,
+            file_name=f"{base_name}_9_16.srt",
+            mime="text/plain",
+            use_container_width=True,
+            help="Субтитры 9:16 с сохранением естественных пауз тишины"
+        )
+
+        st.markdown("##### 🎬 Другие форматы и отчёты")
         dcol1, dcol2, dcol3, dcol4 = st.columns(4)
         
         dcol1.download_button(
-            label="📥 Отчёт (.md)",
-            data=full_report,
-            file_name=f"{base_name}_report.md",
-            mime="text/markdown"
-        )
-        dcol2.download_button(
-            label="🎬 Субтитры (.srt)",
+            label="🎬 Обычные (.srt)",
             data=srt_standard,
             file_name=f"{base_name}.srt",
-            mime="text/plain"
+            mime="text/plain",
+            use_container_width=True
         )
         if srt_word_level:
-            dcol3.download_button(
+            dcol2.download_button(
                 label="⏱️ Пословный SRT (.srt)",
                 data=srt_word_level,
                 file_name=f"{base_name}_words.srt",
-                mime="text/plain"
+                mime="text/plain",
+                use_container_width=True
             )
         else:
-            dcol3.empty()
+            dcol2.empty()
         
+        dcol3.download_button(
+            label="📥 Отчёт (.md)",
+            data=full_report,
+            file_name=f"{base_name}_report.md",
+            mime="text/markdown",
+            use_container_width=True
+        )
         dcol4.download_button(
             label="📊 Данные JSON (.json)",
             data=full_json_export,
             file_name=f"{base_name}_words.json",
-            mime="application/json"
+            mime="application/json",
+            use_container_width=True
         )
         
     except Exception as e:
