@@ -83,15 +83,32 @@ def test_openai_api_connection(base_url: str, api_key: str, model_name: str) -> 
     from openai import OpenAI
     
     clean_url = base_url.strip().rstrip("/")
+    clean_key = api_key.strip()
     if not clean_url:
         return False, "Укажите Base URL провайдера (например, https://api.openai.com/v1)"
-    if not api_key.strip():
+    if not clean_key:
         return False, "Укажите API Key"
+    if clean_key.startswith("http://") or clean_key.startswith("https://"):
+        return False, "В поле 'API Key' указан веб-адрес (URL) вместо ключа! Вставьте ваш секретный ключ API (например, nvapi-... или sk-...)"
         
     start_t = time.time()
     target_model = model_name.strip() if model_name.strip() else "gpt-4o-mini"
+    
+    # Auto-resolve target_model if short name was passed
     try:
-        client = OpenAI(base_url=clean_url, api_key=api_key.strip(), timeout=12.0)
+        client = OpenAI(base_url=clean_url, api_key=clean_key, timeout=8.0)
+        models = client.models.list()
+        avail = [str(m.id) for m in models.data if getattr(m, 'id', None)]
+        if target_model not in avail:
+            for m_id in avail:
+                if m_id.split("/")[-1] == target_model or m_id.endswith("/" + target_model):
+                    target_model = m_id
+                    break
+    except Exception:
+        pass
+
+    try:
+        client = OpenAI(base_url=clean_url, api_key=clean_key, timeout=12.0)
         res = client.chat.completions.create(
             model=target_model,
             messages=[{"role": "user", "content": "ping"}],
@@ -101,14 +118,12 @@ def test_openai_api_connection(base_url: str, api_key: str, model_name: str) -> 
         reply = res.choices[0].message.content if res.choices else "OK"
         return True, f"Подключение к {clean_url} успешно! Модель '{target_model}' ответила за {latency:.2f}с: '{reply}'"
     except Exception as e:
-        try:
-            client = OpenAI(base_url=clean_url, api_key=api_key.strip(), timeout=8.0)
-            models = client.models.list()
-            latency = time.time() - start_t
-            model_ids = [m.id for m in models.data[:5]] if hasattr(models, "data") else []
-            return True, f"Подключение к {clean_url} успешно (время: {latency:.2f}с). Доступные модели: {', '.join(model_ids)}"
-        except Exception:
-            return False, f"Ошибка подключения: {e}"
+        err_s = str(e)
+        if "404" in err_s or "page not found" in err_s.lower():
+            return False, f"Ошибка 404: Модель '{target_model}' не найдена на сервере {clean_url}. Нажмите '🔄 Модели' и выберите модель из списка."
+        elif "401" in err_s or "Unauthorized" in err_s or "invalid json object" in err_s.lower():
+            return False, f"Ошибка 401 (Не авторизован): Неверный API Key для {clean_url}. Проверьте правильность ключа."
+        return False, f"Ошибка подключения: {e}"
 
 def fetch_openai_models(base_url: str, api_key: str) -> tuple[bool, list[str], str]:
     """Fetches list of available model IDs from an OpenAI-compatible API endpoint."""
@@ -436,7 +451,7 @@ def enhance_transcript_with_openai_compatible(
     base_url: str,
     api_key: str,
     model_name: str = "gpt-4o-mini",
-    batch_size: int = 25,
+    batch_size: int = 50,
     progress_bar = None,
     status_text = None
 ) -> list[dict]:
@@ -445,7 +460,21 @@ def enhance_transcript_with_openai_compatible(
     from openai import OpenAI
     
     clean_base_url = base_url.strip().rstrip("/")
-    client = OpenAI(base_url=clean_base_url, api_key=api_key.strip(), timeout=90.0)
+    clean_key = api_key.strip()
+    client = OpenAI(base_url=clean_base_url, api_key=clean_key, timeout=90.0)
+    
+    # Auto-resolve model_name against available models if short name was passed
+    resolved_model = model_name.strip()
+    try:
+        models_res = client.models.list()
+        avail_ids = [str(m.id) for m in models_res.data if getattr(m, 'id', None)]
+        if resolved_model not in avail_ids:
+            for m_id in avail_ids:
+                if m_id.split("/")[-1] == resolved_model or m_id.endswith("/" + resolved_model):
+                    resolved_model = m_id
+                    break
+    except Exception:
+        pass
     
     system_instruction = (
         "Ты — профессиональный редактор субтитров для видеомонтажа. "
@@ -474,12 +503,12 @@ def enhance_transcript_with_openai_compatible(
         )
         
         if status_text is not None:
-            status_text.text(f"✨ AI ({model_name}): обработка сегментов {start_idx + 1}–{end_idx} из {total_segments}...")
+            status_text.text(f"✨ AI ({resolved_model}): обработка сегментов {start_idx + 1}–{end_idx} из {total_segments}...")
             
         raw_text = ""
         try:
             resp = client.chat.completions.create(
-                model=model_name,
+                model=resolved_model,
                 messages=[
                     {"role": "system", "content": system_instruction},
                     {"role": "user", "content": prompt}
@@ -489,7 +518,7 @@ def enhance_transcript_with_openai_compatible(
             raw_text = resp.choices[0].message.content or ""
         except Exception:
             resp = client.chat.completions.create(
-                model=model_name,
+                model=resolved_model,
                 messages=[
                     {"role": "system", "content": system_instruction},
                     {"role": "user", "content": prompt}
@@ -735,6 +764,9 @@ with st.sidebar:
                 type="password",
                 help="Ваш ключ доступа к выбранному API"
             )
+            if openai_api_key.strip().startswith("http://") or openai_api_key.strip().startswith("https://"):
+                st.warning("⚠️ В поле 'API Key' вставлен веб-адрес (URL). Сюда нужно вставить ваш секретный ключ API (например, `nvapi-...` или `sk-...`).")
+                
             models_cache_key = f"openai_models_{openai_base_url.strip()}_{openai_api_key.strip()}"
             
             bcol1, bcol2 = st.columns(2)
@@ -776,15 +808,20 @@ with st.sidebar:
             
             if models_cache_key in st.session_state and st.session_state[models_cache_key]:
                 fetched_models = list(st.session_state[models_cache_key])
-                if saved_model_name and saved_model_name not in fetched_models:
-                    fetched_models.insert(0, saved_model_name)
+                matched_idx = 0
+                for i, m in enumerate(fetched_models):
+                    if m == saved_model_name or m.split("/")[-1] == saved_model_name:
+                        matched_idx = i
+                        break
+                else:
+                    if saved_model_name:
+                        fetched_models.insert(0, saved_model_name)
+                        matched_idx = 0
                     
-                cur_idx = fetched_models.index(saved_model_name) if saved_model_name in fetched_models else 0
-                
                 selected_model = st.selectbox(
                     f"Выберите модель ({len(fetched_models)} доступно):",
                     options=fetched_models,
-                    index=cur_idx,
+                    index=matched_idx,
                     help="Список моделей автоматически подтянут с вашего сервера API"
                 )
                 manual_input = st.checkbox("✏️ Ввести другое название вручную", value=False)
@@ -991,6 +1028,19 @@ if uploaded_file is not None:
                                 "2. Либо переключитесь на **«🌐 Свой API (Совместимый с OpenAI)»**.\n"
                                 "3. Локальная транскрибация Parakeet Redux полностью сохранена и доступна ниже."
                             )
+                        elif "404" in err_text or "page not found" in err_text.lower():
+                            st.warning(
+                                f"⚠️ **Ошибка 404 (Модель не найдена на сервере):**\n\n"
+                                f"Модель `{active_model_name}` не найдена по адресу `{openai_base_url}`.\n\n"
+                                "👉 **Как исправить:**\n"
+                                "1. В боковом меню нажмите кнопку **«🔄 Модели»**.\n"
+                                "2. Выберите модель из выпадающего списка (с полным именем провайдера, например `deepseek-ai/deepseek-v4.1-flash`)."
+                            )
+                        elif "401" in err_text or "unauthorized" in err_text.lower() or "invalid json object" in err_text.lower():
+                            st.warning(
+                                "⚠️ **Ошибка 401 (Не авторизован):**\n\n"
+                                "Сервер отклонил ключ доступа. Убедитесь, что в поле 'API Key' вставлен секретный ключ доступа (например, `nvapi-...`), а не веб-адрес."
+                            )
                         else:
                             st.error(f"Ошибка AI API ({ge}). Использован локальный результат.")
                     finally:
@@ -1007,7 +1057,14 @@ if uploaded_file is not None:
         mcol1.metric("Извлечение аудио (FFmpeg)", f"{conversion_time:.2f} с")
         mcol2.metric("Время транскрибации AI", f"{transcription_time:.2f} с")
         mcol3.metric("Общее время работы", f"{total_execution_time:.2f} с")
-        ai_status_text = f"{ai_provider_name} ({active_model_name}) ✅" if ai_applied else ("Нет ключа ⚠️" if use_ai else "Выключена")
+        if ai_applied:
+            ai_status_text = f"{ai_provider_name} ({active_model_name}) ✅"
+        elif not use_ai:
+            ai_status_text = "Выключена"
+        elif not active_key:
+            ai_status_text = "Нет ключа ⚠️"
+        else:
+            ai_status_text = "Ошибка AI ⚠️ (локально)"
         mcol4.metric("AI правка", ai_status_text)
         
         if remove_fillers and removed_fillers_count > 0:
