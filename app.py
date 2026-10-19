@@ -4,6 +4,7 @@ import os
 import time
 import subprocess
 import json
+import re
 import string
 import pandas as pd
 # pyrefly: ignore [missing-import]
@@ -15,7 +16,8 @@ st.set_page_config(
     layout="wide"
 )
 
-PUNCTUATION_CHARS = set(string.punctuation + "«»—–…„“”")
+# Exclude hyphen '-' to preserve compound words like 'наконец-то', 'из-за', 'по-русски'
+PUNCTUATION_CHARS = set(string.punctuation.replace("-", "") + "«»—–…„“”")
 
 ENV_FILE = os.path.join(os.path.dirname(__file__), ".env")
 
@@ -56,14 +58,19 @@ DEFAULT_FILLER_WORDS = [
 ]
 
 def strip_punctuation_from_text(text: str) -> str:
-    """Removes all punctuation marks from text, preserving words and whitespace."""
-    cleaned = "".join(ch for ch in text if ch not in PUNCTUATION_CHARS)
+    """Removes punctuation from text while preserving intra-word hyphens (e.g. 'наконец-то', 'из-за')."""
+    # Replace standalone dashes/hyphens surrounded by spaces with a space
+    s = re.sub(r'\s+[-—–]+\s+', ' ', text)
+    # Remove leading dash in dialogue (e.g. "- Привет")
+    s = re.sub(r'(?:^|\s)[-—–]+', ' ', s)
+    # Remove all other punctuation marks except intra-word hyphens
+    cleaned = "".join(ch for ch in s if ch not in PUNCTUATION_CHARS)
     return " ".join(cleaned.split())
 
 def strip_punctuation_from_word(word: str) -> str:
-    """Strips punctuation marks from an individual word token."""
+    """Strips punctuation marks from an individual word token, preserving internal hyphens."""
     cleaned = "".join(ch for ch in word if ch not in PUNCTUATION_CHARS)
-    return cleaned.strip()
+    return cleaned.strip(" -")
 
 def parse_filler_words(text_input: str) -> tuple[set[str], list[list[str]]]:
     """Parses user filler words input into single-word set and multi-word phrases list."""
