@@ -7,6 +7,7 @@ import json
 import re
 import string
 import pandas as pd
+import difflib
 # pyrefly: ignore [missing-import]
 import moondream as md
 
@@ -143,60 +144,181 @@ def process_word(word: str, remove_punct: bool = False, case_mode: str = "none")
         res = res.title()
     return res
 
+def align_words_to_timestamps(original_words: list[dict], corrected_text: str, seg_start: float, seg_end: float) -> list[dict]:
+    """Aligns Gemini-corrected words to original word timestamps using difflib.SequenceMatcher."""
+    corrected_word_tokens = corrected_text.split()
+    if not corrected_word_tokens:
+        return []
+    
+    if not original_words:
+        duration = max(0.1, seg_end - seg_start)
+        step = duration / len(corrected_word_tokens)
+        return [
+            {
+                "word": w,
+                "start": round(seg_start + i * step, 2),
+                "end": round(seg_start + (i + 1) * step, 2)
+            }
+            for i, w in enumerate(corrected_word_tokens)
+        ]
+        
+    orig_clean = [w.get("word", "").lower().strip(".,!?:;«»\"'—–…") for w in original_words]
+    corr_clean = [w.lower().strip(".,!?:;«»\"'—–…") for w in corrected_word_tokens]
+    
+    matcher = difflib.SequenceMatcher(None, orig_clean, corr_clean)
+    aligned_words = []
+    
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            for offset in range(i2 - i1):
+                w_orig = original_words[i1 + offset]
+                w_corr = corrected_word_tokens[j1 + offset]
+                aligned_words.append({
+                    "word": w_corr,
+                    "start": w_orig.get("start", seg_start),
+                    "end": w_orig.get("end", seg_end)
+                })
+        elif tag == "replace":
+            orig_slice = original_words[i1:i2]
+            corr_slice = corrected_word_tokens[j1:j2]
+            if orig_slice:
+                r_start = orig_slice[0].get("start", seg_start)
+                r_end = orig_slice[-1].get("end", seg_end)
+            else:
+                r_start, r_end = seg_start, seg_end
+            step = max(0.05, (r_end - r_start) / max(1, len(corr_slice)))
+            for k, w_corr in enumerate(corr_slice):
+                w_s = round(r_start + k * step, 2)
+                w_e = round(min(seg_end, r_start + (k + 1) * step), 2)
+                if w_e <= w_s:
+                    w_e = round(w_s + 0.05, 2)
+                aligned_words.append({
+                    "word": w_corr,
+                    "start": w_s,
+                    "end": w_e
+                })
+        elif tag == "insert":
+            prev_end = aligned_words[-1]["end"] if aligned_words else seg_start
+            next_start = original_words[i1].get("start", seg_end) if i1 < len(original_words) else seg_end
+            if next_start < prev_end:
+                next_start = prev_end + 0.1
+            ins_span = max(0.1, next_start - prev_end)
+            corr_slice = corrected_word_tokens[j1:j2]
+            step = ins_span / max(1, len(corr_slice))
+            for k, w_corr in enumerate(corr_slice):
+                w_s = round(prev_end + k * step, 2)
+                w_e = round(prev_end + (k + 1) * step, 2)
+                aligned_words.append({
+                    "word": w_corr,
+                    "start": w_s,
+                    "end": w_e
+                })
+        elif tag == "delete":
+            pass
+            
+    # Guarantee strictly monotonic non-decreasing timestamps
+    for idx in range(1, len(aligned_words)):
+        if aligned_words[idx]["start"] < aligned_words[idx - 1]["start"]:
+            aligned_words[idx]["start"] = aligned_words[idx - 1]["start"]
+        if aligned_words[idx]["end"] <= aligned_words[idx]["start"]:
+            aligned_words[idx]["end"] = round(aligned_words[idx]["start"] + 0.05, 2)
+            
+    return aligned_words
+
 def enhance_transcript_with_gemini(
     segments: list[dict],
     api_key: str,
-    model_name: str = "gemini-3.8-flash"
+    model_name: str = "gemini-3.8-flash",
+    batch_size: int = 25,
+    progress_bar = None,
+    status_text = None
 ) -> list[dict]:
-    """Uses Google Gemini API to fix transcription errors, remove speech fillers, and polish sentences while preserving timestamps."""
+    """Uses Google Gemini API to fix transcription errors, remove speech fillers, and polish words while preserving and aligning timestamps."""
     from google import genai
     from google.genai import types
 
     client = genai.Client(api_key=api_key.strip())
     
-    items_to_send = [{"id": i, "text": seg.get("text", "")} for i, seg in enumerate(segments)]
-    
     system_instruction = (
-        "Ты — профессиональный редактор стенограмм, субтитров и транскрипций речи. "
-        "Твоя задача — исправить распознанный текст речи:\n"
-        "1. Исправь ошибки автоматического распознавания (фонетические искажения, опечатки, неправильно понятые термины, профессиональный сленг).\n"
-        "2. Полностью удали все слова-паразиты, звуки заминки речи (э-э, мм, ну, типа, короче, как бы, в общем, так сказать и т.д.), повторы и оговорки.\n"
-        "3. Сохрани точный смысл каждого предложения и естественность языка.\n"
-        "4. Верни JSON-массив объектов с теми же id и исправленным полем text: [{\"id\": 0, \"text\": \"...\"}]. "
-        "Если фрагмент состоял исключительно из заминки, верни text: \"\"."
+        "Ты — профессиональный редактор субтитров для видеомонтажа. "
+        "Твоя цель — сделать так, чтобы субтитры точно соответствовали звучащей речи, но были грамотными, чистыми и без мусора:\n"
+        "1. Исправь ошибки распознавания речи (ASR): фонетические искажения, опечатки, неправильно услышанные технические термины и названия "
+        "(Claude, ChatGPT, Codex, Kimi, DaVinci, Premiere, нейросеть, localhost, Git и т.д.), падежи и окончания.\n"
+        "2. Полностью удали слова-паразиты, звуки заминки речи (э-э, мм, ну, типа, короче, как бы, в общем, так сказать и т.д.), заикания и случайные повторы слов.\n"
+        "3. ВАЖНО: НЕ ПЕРЕСКАЗЫВАЙ и НЕ ПЕРЕФРАЗИРУЙ речь! Сохраняй авторские формулировки и структуру предложений, чтобы зритель слышал ровно то, что написано в субтитрах.\n"
+        "4. Сохрани количество и порядок переданных сегментов. Верни строго валидный JSON-массив объектов: [{\"id\": 0, \"text\": \"...\"}]. "
+        "Если фрагмент состоял исключительно из заминки или паразитов, верни text: \"\"."
     )
     
-    prompt = f"Вот распознанные сегменты речи в формате JSON:\n{json.dumps(items_to_send, ensure_ascii=False, indent=2)}\n\nИсправь ошибки и удали слова-паразиты. Верни строго валидный JSON-массив объектов с id и text."
+    all_corrections = {}
+    total_segments = len(segments)
     
-    response = client.models.generate_content(
-        model=model_name,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            response_mime_type="application/json"
-        )
-    )
-    
-    raw_text = response.text.strip()
-    if raw_text.startswith("```json"):
-        raw_text = raw_text[7:]
-    elif raw_text.startswith("```"):
-        raw_text = raw_text[3:]
-    if raw_text.endswith("```"):
-        raw_text = raw_text[:-3]
+    # Process in batches to guarantee fast, reliable responses without timeout or token overflow
+    for start_idx in range(0, total_segments, batch_size):
+        end_idx = min(start_idx + batch_size, total_segments)
+        batch = segments[start_idx:end_idx]
         
-    corrected_items = json.loads(raw_text.strip())
-    corrections_map = {item["id"]: item.get("text", "").strip() for item in corrected_items if "id" in item}
-    
+        items_to_send = [{"id": start_idx + j, "text": seg.get("text", "")} for j, seg in enumerate(batch)]
+        prompt = (
+            f"Вот сегменты речи #{start_idx + 1}–#{end_idx} (всего {len(items_to_send)}) в формате JSON:\n"
+            f"{json.dumps(items_to_send, ensure_ascii=False, indent=2)}\n\n"
+            "Исправь ошибки и удали слова-паразиты. Сохраняй авторские слова, не перефразируй! "
+            "Верни строго валидный JSON-массив объектов с полями id и text."
+        )
+        
+        if status_text is not None:
+            status_text.text(f"✨ Gemini ({model_name}): обработка сегментов {start_idx + 1}–{end_idx} из {total_segments}...")
+            
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                response_mime_type="application/json"
+            )
+        )
+        
+        raw_text = response.text.strip()
+        if raw_text.startswith("```json"):
+            raw_text = raw_text[7:]
+        elif raw_text.startswith("```"):
+            raw_text = raw_text[3:]
+        if raw_text.endswith("```"):
+            raw_text = raw_text[:-3]
+            
+        corrected_items = json.loads(raw_text.strip())
+        for item in corrected_items:
+            if "id" in item:
+                try:
+                    all_corrections[int(item["id"])] = item.get("text", "").strip()
+                except (ValueError, TypeError):
+                    pass
+                    
+        if progress_bar is not None:
+            progress_bar.progress(min(1.0, end_idx / max(1, total_segments)))
+            
     enhanced_segments = []
     for i, seg in enumerate(segments):
         seg_copy = dict(seg)
-        if i in corrections_map:
-            corrected_text = corrections_map[i]
+        if i in all_corrections:
+            corrected_text = all_corrections[i]
             if not corrected_text:
                 continue  # Whole segment removed as filler
-            seg_copy["text"] = corrected_text
             seg_copy["original_text"] = seg.get("text", "")
+            seg_copy["text"] = corrected_text
+            
+            # Align words to timestamps
+            if "words" in seg and seg["words"]:
+                aligned_words = align_words_to_timestamps(
+                    seg["words"],
+                    corrected_text,
+                    seg.get("start", 0.0),
+                    seg.get("end", 0.0)
+                )
+                seg_copy["words"] = aligned_words
+                if aligned_words:
+                    seg_copy["start"] = aligned_words[0]["start"]
+                    seg_copy["end"] = aligned_words[-1]["end"]
         enhanced_segments.append(seg_copy)
         
     return enhanced_segments
@@ -401,199 +523,239 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
+    file_bytes = uploaded_file.getvalue()
     file_ext = uploaded_file.name.split('.')[-1].lower()
     base_name = os.path.splitext(uploaded_file.name)[0]
-    total_start_time = time.time()
+    file_id = f"{uploaded_file.name}_{len(file_bytes)}"
     
-    with tempfile.TemporaryDirectory() as temp_dir:
-        input_file_path = os.path.join(temp_dir, f"input.{file_ext}")
-        wav_file_path = os.path.join(temp_dir, "audio.wav")
-        
-        with open(input_file_path, "wb") as f:
-            f.write(uploaded_file.read())
+    # 1. Local ASR Inference (cached in session state per file & timestamp_mode)
+    asr_cache_key = f"asr_{file_id}_{timestamp_mode}"
+    if asr_cache_key not in st.session_state:
+        total_start_time = time.time()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_file_path = os.path.join(temp_dir, f"input.{file_ext}")
+            wav_file_path = os.path.join(temp_dir, "audio.wav")
             
-        st.info("Извлечение и конвертация аудио в формат 16кГц WAV через FFmpeg...")
-        
-        try:
-            conversion_time = convert_to_wav(input_file_path, wav_file_path)
-        except Exception as e:
-            st.error(f"Ошибка обработки аудио: {e}")
-            st.stop()
-            
-        st.success(f"Аудио подготовлено за {conversion_time:.2f} сек. Запуск локального инференса нейросети...")
-        
-        with st.spinner("Распознавание речи с формированием пословных таймкодов..."):
+            with open(input_file_path, "wb") as f:
+                f.write(file_bytes)
+                
+            st.info("Извлечение и конвертация аудио в формат 16кГц WAV через FFmpeg...")
             try:
-                model_start_time = time.time()
-                speech_model = load_speech_model()
-                result = speech_model.transcribe(audio=wav_file_path, timestamps=timestamp_mode)
-                transcription_time = time.time() - model_start_time
+                conversion_time = convert_to_wav(input_file_path, wav_file_path)
+            except Exception as e:
+                st.error(f"Ошибка обработки аудио: {e}")
+                st.stop()
                 
-                raw_segments = result.get("segments", [])
-                
-                # Filter filler words via local dictionary
-                processed_segments = []
-                removed_fillers_count = 0
-                
-                for seg in raw_segments:
-                    seg_dict = dict(seg)
-                    words = seg.get("words", [])
-                    if words and remove_fillers:
-                        filtered_words = filter_words(words, single_fillers, multi_fillers)
-                        removed_fillers_count += (len(words) - len(filtered_words))
-                        if not filtered_words:
-                            continue  # Whole segment was filler words
-                        seg_dict["words"] = filtered_words
-                        seg_dict["text"] = " ".join([w.get("word", "") for w in filtered_words])
-                        seg_dict["start"] = filtered_words[0].get("start", seg.get("start", 0.0))
-                        seg_dict["end"] = filtered_words[-1].get("end", seg.get("end", 0.0))
-                    elif remove_fillers and not words:
-                        clean_seg_text = filter_text_fillers(seg.get("text", ""), single_fillers, multi_fillers)
-                        if not clean_seg_text:
-                            continue
-                        seg_dict["text"] = clean_seg_text
-                    processed_segments.append(seg_dict)
-                
-                # Optional Gemini AI enhancement
-                gemini_applied = False
-                if use_gemini and gemini_api_key.strip():
-                    with st.spinner(f"✨ Обработка через Google Gemini ({gemini_model}): исправление ошибок и удаление паразитов..."):
-                        try:
-                            processed_segments = enhance_transcript_with_gemini(
-                                processed_segments,
-                                api_key=gemini_api_key.strip(),
-                                model_name=gemini_model
-                            )
-                            gemini_applied = True
-                        except Exception as ge:
-                            st.warning(f"Внимание: ошибка Gemini API ({ge}). Использован локальный результат.")
-                
-                total_execution_time = time.time() - total_start_time
-                
-                # Performance metrics
-                mcol1, mcol2, mcol3, mcol4 = st.columns(4)
-                mcol1.metric("Извлечение аудио (FFmpeg)", f"{conversion_time:.2f} с")
-                mcol2.metric("Время транскрибации AI", f"{transcription_time:.2f} с")
-                mcol3.metric("Общее время работы", f"{total_execution_time:.2f} с")
-                mcol4.metric("Gemini AI правка", "Включена ✅" if gemini_applied else "Выключена")
-                
-                if remove_fillers and removed_fillers_count > 0:
-                    st.info(f"🚫 Локально удалено слов-паразитов: **{removed_fillers_count}**" + (" + дополнительная правка Gemini" if gemini_applied else ""))
-                
-                st.subheader("Результаты транскрибации")
-                
-                tab_names = ["💬 Предложения и сегменты", "⏱️ Пословные таймкоды", "🎬 Субтитры (SRT / VTT)"]
-                if gemini_applied:
-                    tab_names.append("🔄 Сравнение: Исходный vs Gemini")
+            st.success(f"Аудио подготовлено за {conversion_time:.2f} сек. Запуск локального инференса нейросети...")
+            with st.spinner("Распознавание речи с формированием пословных таймкодов..."):
+                try:
+                    model_start_time = time.time()
+                    speech_model = load_speech_model()
+                    result = speech_model.transcribe(audio=wav_file_path, timestamps=timestamp_mode)
+                    transcription_time = time.time() - model_start_time
+                    st.session_state[asr_cache_key] = {
+                        "raw_segments": result.get("segments", []),
+                        "conversion_time": conversion_time,
+                        "transcription_time": transcription_time,
+                        "total_execution_time": time.time() - total_start_time,
+                        "duration_seconds": result.get("duration_seconds", 0.0)
+                    }
+                except Exception as e:
+                    st.error(f"Ошибка при транскрибации: {e}")
+                    st.stop()
                     
-                tabs = st.tabs(tab_names)
-                tab_segments = tabs[0]
-                tab_words = tabs[1]
-                tab_subtitles = tabs[2]
-                tab_diff = tabs[3] if gemini_applied else None
+    cached_asr = st.session_state[asr_cache_key]
+    raw_segments = cached_asr["raw_segments"]
+    conversion_time = cached_asr["conversion_time"]
+    transcription_time = cached_asr["transcription_time"]
+    total_execution_time = cached_asr["total_execution_time"]
+    duration_seconds = cached_asr["duration_seconds"]
+
+    try:
+        # Filter filler words via local dictionary
+        processed_segments = []
+        removed_fillers_count = 0
+        
+        for seg in raw_segments:
+            seg_dict = dict(seg)
+            words = seg.get("words", [])
+            if words and remove_fillers:
+                filtered_words = filter_words(words, single_fillers, multi_fillers)
+                removed_fillers_count += (len(words) - len(filtered_words))
+                if not filtered_words:
+                    continue  # Whole segment was filler words
+                seg_dict["words"] = filtered_words
+                seg_dict["text"] = " ".join([w.get("word", "") for w in filtered_words])
+                seg_dict["start"] = filtered_words[0].get("start", seg.get("start", 0.0))
+                seg_dict["end"] = filtered_words[-1].get("end", seg.get("end", 0.0))
+            elif remove_fillers and not words:
+                clean_seg_text = filter_text_fillers(seg.get("text", ""), single_fillers, multi_fillers)
+                if not clean_seg_text:
+                    continue
+                seg_dict["text"] = clean_seg_text
+            processed_segments.append(seg_dict)
+        
+        # Optional Gemini AI enhancement
+        gemini_applied = False
+        gemini_cache_key = f"gemini_{file_id}_{gemini_model}_{remove_fillers}"
+        if use_gemini:
+            if not gemini_api_key.strip():
+                st.warning("⚠️ Для исправления через Gemini укажите Gemini API Key в боковом меню или добавьте его в файл .env")
+            else:
+                if gemini_cache_key in st.session_state:
+                    processed_segments = st.session_state[gemini_cache_key]
+                    gemini_applied = True
+                else:
+                    progress_bar = st.progress(0, text="✨ Подключение к Gemini API...")
+                    status_text = st.empty()
+                    try:
+                        enhanced = enhance_transcript_with_gemini(
+                            processed_segments,
+                            api_key=gemini_api_key.strip(),
+                            model_name=gemini_model,
+                            batch_size=25,
+                            progress_bar=progress_bar,
+                            status_text=status_text
+                        )
+                        st.session_state[gemini_cache_key] = enhanced
+                        processed_segments = enhanced
+                        gemini_applied = True
+                    except Exception as ge:
+                        st.error(f"Ошибка Gemini API ({ge}). Использован локальный результат.")
+                    finally:
+                        progress_bar.empty()
+                        status_text.empty()
+        
+        if use_gemini and gemini_applied:
+            if st.sidebar.button("🔄 Повторить обработку Gemini"):
+                st.session_state.pop(gemini_cache_key, None)
+                st.rerun()
+        
+        # Performance metrics
+        mcol1, mcol2, mcol3, mcol4 = st.columns(4)
+        mcol1.metric("Извлечение аудио (FFmpeg)", f"{conversion_time:.2f} с")
+        mcol2.metric("Время транскрибации AI", f"{transcription_time:.2f} с")
+        mcol3.metric("Общее время работы", f"{total_execution_time:.2f} с")
+        gemini_status_text = "Включена ✅" if gemini_applied else ("Нет ключа ⚠️" if (use_gemini and not gemini_api_key.strip()) else "Выключена")
+        mcol4.metric("Gemini AI правка", gemini_status_text)
+        
+        if remove_fillers and removed_fillers_count > 0:
+            st.info(f"🚫 Локально удалено слов-паразитов: **{removed_fillers_count}**" + (" + дополнительная правка Gemini" if gemini_applied else ""))
                 
-                # Process segments and words
-                transcript_lines = []
-                with tab_segments:
-                    for idx, segment in enumerate(processed_segments, 1):
-                        start = segment.get("start", 0.0)
-                        end = segment.get("end", 0.0)
-                        raw_text = segment.get("text", "").strip()
-                        display_text = process_text(raw_text, remove_punctuation, case_mode)
-                        words = segment.get("words", [])
-                        
-                        start_str = format_time_display(start)
-                        end_str = format_time_display(end)
-                        
-                        st.markdown(f"**`[{start_str} - {end_str}]`** {display_text}")
-                        transcript_lines.append(f"* **`[{start_str} - {end_str}]`** {display_text}")
-                        
-                        if words:
-                            with st.expander(f"🔍 Пословные метки фрагмента #{idx} ({len(words)} слов)", expanded=False):
-                                word_chips = []
-                                for w in words:
-                                    w_text = process_word(w.get("word", ""), remove_punctuation, case_mode)
-                                    if not w_text:
-                                        continue
-                                    w_start = w.get("start", 0.0)
-                                    w_end = w.get("end", 0.0)
-                                    word_chips.append(f"`{w_text}` ({w_start:.2f}с - {w_end:.2f}с)")
-                                st.write(" • ".join(word_chips))
+        st.subheader("Результаты транскрибации")
+        
+        tab_names = ["💬 Предложения и сегменты", "⏱️ Пословные таймкоды", "🎬 Субтитры (SRT / VTT)"]
+        if gemini_applied:
+            tab_names.append("🔄 Сравнение: Исходный vs Gemini")
+            
+        tabs = st.tabs(tab_names)
+        tab_segments = tabs[0]
+        tab_words = tabs[1]
+        tab_subtitles = tabs[2]
+        tab_diff = tabs[3] if gemini_applied else None
+        
+        # Process segments and words
+        transcript_lines = []
+        with tab_segments:
+            for idx, segment in enumerate(processed_segments, 1):
+                start = segment.get("start", 0.0)
+                end = segment.get("end", 0.0)
+                raw_text = segment.get("text", "").strip()
+                display_text = process_text(raw_text, remove_punctuation, case_mode)
+                words = segment.get("words", [])
                 
-                # Tab 2: Word-level table
-                all_words_list = []
-                for s_idx, segment in enumerate(processed_segments, 1):
-                    for w in segment.get("words", []):
-                        w_text = process_word(w.get("word", ""), remove_punctuation, case_mode)
-                        if not w_text:
-                            continue
-                        w_start = w.get("start", 0.0)
-                        w_end = w.get("end", 0.0)
-                        all_words_list.append({
-                            "№": len(all_words_list) + 1,
-                            "Сегмент": s_idx,
-                            "Слово": w_text,
-                            "Начало (сек)": round(w_start, 2),
-                            "Конец (сек)": round(w_end, 2),
-                            "Длительность (сек)": round(w_end - w_start, 2),
-                            "Начало (таймкод)": format_time_srt(w_start),
-                            "Конец (таймкод)": format_time_srt(w_end),
+                start_str = format_time_display(start)
+                end_str = format_time_display(end)
+                
+                st.markdown(f"**`[{start_str} - {end_str}]`** {display_text}")
+                transcript_lines.append(f"* **`[{start_str} - {end_str}]`** {display_text}")
+                
+                if words:
+                    with st.expander(f"🔍 Пословные метки фрагмента #{idx} ({len(words)} слов)", expanded=False):
+                        word_chips = []
+                        for w in words:
+                            w_text = process_word(w.get("word", ""), remove_punctuation, case_mode)
+                            if not w_text:
+                                continue
+                            w_start = w.get("start", 0.0)
+                            w_end = w.get("end", 0.0)
+                            word_chips.append(f"`{w_text}` ({w_start:.2f}с - {w_end:.2f}с)")
+                        st.write(" • ".join(word_chips))
+        
+        # Tab 2: Word-level table
+        all_words_list = []
+        for s_idx, segment in enumerate(processed_segments, 1):
+            for w in segment.get("words", []):
+                w_text = process_word(w.get("word", ""), remove_punctuation, case_mode)
+                if not w_text:
+                    continue
+                w_start = w.get("start", 0.0)
+                w_end = w.get("end", 0.0)
+                all_words_list.append({
+                    "№": len(all_words_list) + 1,
+                    "Сегмент": s_idx,
+                    "Слово": w_text,
+                    "Начало (сек)": round(w_start, 2),
+                    "Конец (сек)": round(w_end, 2),
+                    "Длительность (сек)": round(w_end - w_start, 2),
+                    "Начало (таймкод)": format_time_srt(w_start),
+                    "Конец (таймкод)": format_time_srt(w_end),
+                })
+        
+        with tab_words:
+            if all_words_list:
+                st.caption(f"Всего распознано слов с точными временными метками: {len(all_words_list)}")
+                df_words = pd.DataFrame(all_words_list)
+                st.dataframe(df_words, use_container_width=True, hide_index=True)
+            else:
+                st.info("В выбранном режиме пословные таймкоды не формировались. Переключите режим в боковом меню на 'По словам и предложениям'.")
+        
+        # Generate subtitle formats with punct stripping, filler removal, and case formatting
+        srt_standard = generate_srt(processed_segments, word_level=False, remove_punct=remove_punctuation, case_mode=case_mode)
+        srt_word_level = generate_srt(processed_segments, word_level=True, remove_punct=remove_punctuation, case_mode=case_mode) if all_words_list else ""
+        vtt_standard = generate_vtt(processed_segments, word_level=False, remove_punct=remove_punctuation, case_mode=case_mode)
+        vtt_word_level = generate_vtt(processed_segments, word_level=True, remove_punct=remove_punctuation, case_mode=case_mode) if all_words_list else ""
+        
+        # Tab 3: Subtitles preview
+        with tab_subtitles:
+            sub_col1, sub_col2 = st.columns(2)
+            with sub_col1:
+                st.markdown("#### 📄 Стандартные субтитры (по предложениям)")
+                st.text_area("SRT Preview", srt_standard, height=300)
+            with sub_col2:
+                st.markdown("#### ⏱️ Пословные субтитры (Караоке / Word-by-Word)")
+                if srt_word_level:
+                    st.text_area("Word-level SRT Preview", srt_word_level, height=300)
+                else:
+                    st.info("Пословные субтитры доступны при выборе режима 'По словам'.")
+        
+        # Tab 4: Diff comparison if Gemini applied
+        if tab_diff is not None:
+            with tab_diff:
+                st.markdown("### Сравнение текста до и после обработки нейросетью Gemini")
+                diff_rows = []
+                for seg in processed_segments:
+                    if "original_text" in seg:
+                        diff_rows.append({
+                            "Таймкод": f"{format_time_display(seg['start'])} - {format_time_display(seg['end'])}",
+                            "Исходный текст (ASR)": seg["original_text"],
+                            "Исправлено Gemini AI": seg["text"]
                         })
-                
-                with tab_words:
-                    if all_words_list:
-                        st.caption(f"Всего распознано слов с точными временными метками: {len(all_words_list)}")
-                        df_words = pd.DataFrame(all_words_list)
-                        st.dataframe(df_words, use_container_width=True, hide_index=True)
-                    else:
-                        st.info("В выбранном режиме пословные таймкоды не формировались. Переключите режим в боковом меню на 'По словам и предложениям'.")
-                
-                # Generate subtitle formats with punct stripping, filler removal, and case formatting
-                srt_standard = generate_srt(processed_segments, word_level=False, remove_punct=remove_punctuation, case_mode=case_mode)
-                srt_word_level = generate_srt(processed_segments, word_level=True, remove_punct=remove_punctuation, case_mode=case_mode) if all_words_list else ""
-                vtt_standard = generate_vtt(processed_segments, word_level=False, remove_punct=remove_punctuation, case_mode=case_mode)
-                vtt_word_level = generate_vtt(processed_segments, word_level=True, remove_punct=remove_punctuation, case_mode=case_mode) if all_words_list else ""
-                
-                # Tab 3: Subtitles preview
-                with tab_subtitles:
-                    sub_col1, sub_col2 = st.columns(2)
-                    with sub_col1:
-                        st.markdown("#### 📄 Стандартные субтитры (по предложениям)")
-                        st.text_area("SRT Preview", srt_standard, height=300)
-                    with sub_col2:
-                        st.markdown("#### ⏱️ Пословные субтитры (Караоке / Word-by-Word)")
-                        if srt_word_level:
-                            st.text_area("Word-level SRT Preview", srt_word_level, height=300)
-                        else:
-                            st.info("Пословные субтитры доступны при выборе режима 'По словам'.")
-                
-                # Tab 4: Diff comparison if Gemini applied
-                if tab_diff is not None:
-                    with tab_diff:
-                        st.markdown("### Сравнение текста до и после обработки нейросетью Gemini")
-                        diff_rows = []
-                        for seg in processed_segments:
-                            if "original_text" in seg:
-                                diff_rows.append({
-                                    "Таймкод": f"{format_time_display(seg['start'])} - {format_time_display(seg['end'])}",
-                                    "Исходный текст (ASR)": seg["original_text"],
-                                    "Исправлено Gemini AI": seg["text"]
-                                })
-                        if diff_rows:
-                            st.dataframe(pd.DataFrame(diff_rows), use_container_width=True, hide_index=True)
-                
-                # Prepare outputs and Markdown report
-                body_transcript = "\n\n".join(transcript_lines)
-                
-                words_report_lines = []
-                if all_words_list:
-                    words_report_lines.append("\n\n## ⏱️ Пословные временные метки\n\n| № | Слово | Начало (с) | Конец (с) | Длительность (с) |\n|---|---|---|---|---|")
-                    for row in all_words_list:
-                        words_report_lines.append(f"| {row['№']} | `{row['Слово']}` | {row['Начало (сек)']} | {row['Конец (сек)']} | {row['Длительность (сек)']} |")
-                
-                words_report = "\n".join(words_report_lines)
-                
-                full_report = f"""# ⚡ Parakeet Redux Transcription Report
+                if diff_rows:
+                    st.dataframe(pd.DataFrame(diff_rows), use_container_width=True, hide_index=True)
+        
+        # Prepare outputs and Markdown report
+        body_transcript = "\n\n".join(transcript_lines)
+        
+        words_report_lines = []
+        if all_words_list:
+            words_report_lines.append("\n\n## ⏱️ Пословные временные метки\n\n| № | Слово | Начало (с) | Конец (с) | Длительность (с) |\n|---|---|---|---|---|")
+            for row in all_words_list:
+                words_report_lines.append(f"| {row['№']} | `{row['Слово']}` | {row['Начало (сек)']} | {row['Конец (сек)']} | {row['Длительность (сек)']} |")
+        
+        words_report = "\n".join(words_report_lines)
+        
+        full_report = f"""# ⚡ Parakeet Redux Transcription Report
 
 ## ⏱️ Execution Performance Summary
 * **Source Media File:** `{uploaded_file.name}`
@@ -613,78 +775,78 @@ if uploaded_file is not None:
 {body_transcript}
 {words_report}
 """
-                
-                # Process JSON export with cleaned words and sentences
-                processed_json = {
-                    "text": "\n".join([process_text(s.get("text", ""), remove_punctuation, case_mode) for s in processed_segments]),
-                    "duration_seconds": result.get("duration_seconds"),
-                    "gemini_enhanced": gemini_applied,
-                    "segments": []
-                }
-                for seg in processed_segments:
-                    s_dict = {
-                        "text": process_text(seg.get("text", ""), remove_punctuation, case_mode),
-                        "start": seg.get("start"),
-                        "end": seg.get("end"),
-                        "words": [
-                            {
-                                "word": process_word(w.get("word", ""), remove_punctuation, case_mode),
-                                "start": w.get("start"),
-                                "end": w.get("end")
-                            }
-                            for w in seg.get("words", [])
-                            if process_word(w.get("word", ""), remove_punctuation, case_mode)
-                        ]
+        
+        # Process JSON export with cleaned words and sentences
+        processed_json = {
+            "text": "\n".join([process_text(s.get("text", ""), remove_punctuation, case_mode) for s in processed_segments]),
+            "duration_seconds": duration_seconds,
+            "gemini_enhanced": gemini_applied,
+            "segments": []
+        }
+        for seg in processed_segments:
+            s_dict = {
+                "text": process_text(seg.get("text", ""), remove_punctuation, case_mode),
+                "start": seg.get("start"),
+                "end": seg.get("end"),
+                "words": [
+                    {
+                        "word": process_word(w.get("word", ""), remove_punctuation, case_mode),
+                        "start": w.get("start"),
+                        "end": w.get("end")
                     }
-                    processed_json["segments"].append(s_dict)
+                    for w in seg.get("words", [])
+                    if process_word(w.get("word", ""), remove_punctuation, case_mode)
+                ]
+            }
+            processed_json["segments"].append(s_dict)
 
-                full_json_export = json.dumps(processed_json, ensure_ascii=False, indent=2)
+        full_json_export = json.dumps(processed_json, ensure_ascii=False, indent=2)
 
-                # Save outputs locally to outputs directory
-                os.makedirs("outputs", exist_ok=True)
-                with open(os.path.join("outputs", "outputs.md"), "w", encoding="utf-8") as f:
-                    f.write(full_report)
-                with open(os.path.join("outputs", "subtitles.srt"), "w", encoding="utf-8") as f:
-                    f.write(srt_standard)
-                if srt_word_level:
-                    with open(os.path.join("outputs", "subtitles_words.srt"), "w", encoding="utf-8") as f:
-                        f.write(srt_word_level)
-                with open(os.path.join("outputs", "transcript.json"), "w", encoding="utf-8") as f:
-                    f.write(full_json_export)
-                
-                # Download buttons
-                st.markdown("---")
-                st.subheader("📥 Скачать результаты")
-                dcol1, dcol2, dcol3, dcol4 = st.columns(4)
-                
-                dcol1.download_button(
-                    label="📥 Отчёт (.md)",
-                    data=full_report,
-                    file_name=f"{base_name}_report.md",
-                    mime="text/markdown"
-                )
-                dcol2.download_button(
-                    label="🎬 Субтитры (.srt)",
-                    data=srt_standard,
-                    file_name=f"{base_name}.srt",
-                    mime="text/plain"
-                )
-                if srt_word_level:
-                    dcol3.download_button(
-                        label="⏱️ Пословный SRT (.srt)",
-                        data=srt_word_level,
-                        file_name=f"{base_name}_words.srt",
-                        mime="text/plain"
-                    )
-                else:
-                    dcol3.empty()
-                
-                dcol4.download_button(
-                    label="📊 Данные JSON (.json)",
-                    data=full_json_export,
-                    file_name=f"{base_name}_words.json",
-                    mime="application/json"
-                )
-                
-            except Exception as e:
-                st.error(f"Ошибка при транскрибации: {e}")
+        # Save outputs locally to outputs directory
+        os.makedirs("outputs", exist_ok=True)
+        with open(os.path.join("outputs", "outputs.md"), "w", encoding="utf-8") as f:
+            f.write(full_report)
+        with open(os.path.join("outputs", "subtitles.srt"), "w", encoding="utf-8") as f:
+            f.write(srt_standard)
+        if srt_word_level:
+            with open(os.path.join("outputs", "subtitles_words.srt"), "w", encoding="utf-8") as f:
+                f.write(srt_word_level)
+        with open(os.path.join("outputs", "transcript.json"), "w", encoding="utf-8") as f:
+            f.write(full_json_export)
+        
+        # Download buttons
+        st.markdown("---")
+        st.subheader("📥 Скачать результаты")
+        dcol1, dcol2, dcol3, dcol4 = st.columns(4)
+        
+        dcol1.download_button(
+            label="📥 Отчёт (.md)",
+            data=full_report,
+            file_name=f"{base_name}_report.md",
+            mime="text/markdown"
+        )
+        dcol2.download_button(
+            label="🎬 Субтитры (.srt)",
+            data=srt_standard,
+            file_name=f"{base_name}.srt",
+            mime="text/plain"
+        )
+        if srt_word_level:
+            dcol3.download_button(
+                label="⏱️ Пословный SRT (.srt)",
+                data=srt_word_level,
+                file_name=f"{base_name}_words.srt",
+                mime="text/plain"
+            )
+        else:
+            dcol3.empty()
+        
+        dcol4.download_button(
+            label="📊 Данные JSON (.json)",
+            data=full_json_export,
+            file_name=f"{base_name}_words.json",
+            mime="application/json"
+        )
+        
+    except Exception as e:
+        st.error(f'Ошибка при обработке результатов: {e}')
