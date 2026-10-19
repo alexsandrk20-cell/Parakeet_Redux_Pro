@@ -110,6 +110,28 @@ def test_openai_api_connection(base_url: str, api_key: str, model_name: str) -> 
         except Exception:
             return False, f"Ошибка подключения: {e}"
 
+def fetch_openai_models(base_url: str, api_key: str) -> tuple[bool, list[str], str]:
+    """Fetches list of available model IDs from an OpenAI-compatible API endpoint."""
+    from openai import OpenAI
+    clean_url = base_url.strip().rstrip("/")
+    if not clean_url:
+        return False, [], "Укажите Base URL провайдера"
+    if not api_key.strip():
+        return False, [], "Укажите API Key провайдера"
+    try:
+        client = OpenAI(base_url=clean_url, api_key=api_key.strip(), timeout=12.0)
+        res = client.models.list()
+        raw_ids = [str(m.id) for m in res.data if getattr(m, 'id', None)]
+        if not raw_ids:
+            return False, [], "Сервер ответил, но список моделей пуст."
+        # Prioritize chat/instruct/flash/large models at the top
+        chat_models = sorted([m for m in raw_ids if any(k in m.lower() for k in ["chat", "instruct", "flash", "it", "large", "mini", "gpt", "llama", "deepseek"])])
+        other_models = sorted([m for m in raw_ids if m not in chat_models])
+        sorted_models = chat_models + other_models
+        return True, sorted_models, f"Успешно подтянуто моделей: {len(sorted_models)}"
+    except Exception as e:
+        return False, [], f"Не удалось подтянуть модели: {e}"
+
 DEFAULT_FILLER_WORDS = [
     # Русские звуки заминки и междометия
     "ээ", "эээ", "эм", "эмм", "мм", "ммм", "аа", "ааа", "гм", "хм",
@@ -713,18 +735,69 @@ with st.sidebar:
                 type="password",
                 help="Ваш ключ доступа к выбранному API"
             )
-            openai_model = st.text_input(
-                "Название модели:",
-                value=saved_config.get("OPENAI_MODEL", "gpt-4o-mini"),
-                help="Например: gpt-4o-mini, gpt-4o, claude-3-5-sonnet, deepseek-chat"
-            )
-            if st.button("🔍 Проверить подключение к API", use_container_width=True):
-                with st.spinner(f"Проверка подключения к {openai_base_url}..."):
-                    ok, msg = test_openai_api_connection(openai_base_url, openai_api_key, openai_model)
+            models_cache_key = f"openai_models_{openai_base_url.strip()}_{openai_api_key.strip()}"
+            
+            bcol1, bcol2 = st.columns(2)
+            load_models_clicked = bcol1.button("🔄 Модели", use_container_width=True, help="Подтянуть список доступных моделей с сервера")
+            test_conn_clicked = bcol2.button("🔍 Проверить API", use_container_width=True, help="Проверить работоспособность подключения")
+            
+            if load_models_clicked:
+                with st.spinner("Загрузка списка моделей с сервера..."):
+                    ok, models_list, msg = fetch_openai_models(openai_base_url, openai_api_key)
                     if ok:
+                        st.session_state[models_cache_key] = models_list
                         st.success(f"✅ {msg}")
                     else:
                         st.error(f"❌ {msg}")
+                        
+            if test_conn_clicked:
+                with st.spinner(f"Проверка подключения к {openai_base_url}..."):
+                    current_model_test = saved_config.get("OPENAI_MODEL", "gpt-4o-mini")
+                    ok, msg = test_openai_api_connection(openai_base_url, openai_api_key, current_model_test)
+                    if ok:
+                        st.success(f"✅ {msg}")
+                        if models_cache_key not in st.session_state:
+                            _, models_list, _ = fetch_openai_models(openai_base_url, openai_api_key)
+                            if models_list:
+                                st.session_state[models_cache_key] = models_list
+                                st.rerun()
+                    else:
+                        st.error(f"❌ {msg}")
+                        
+            # Auto-fetch models on first view if credentials provided and cache is empty
+            if (models_cache_key not in st.session_state 
+                and openai_base_url.strip() 
+                and openai_api_key.strip()):
+                ok, models_list, _ = fetch_openai_models(openai_base_url, openai_api_key)
+                if ok and models_list:
+                    st.session_state[models_cache_key] = models_list
+
+            saved_model_name = saved_config.get("OPENAI_MODEL", "gpt-4o-mini")
+            
+            if models_cache_key in st.session_state and st.session_state[models_cache_key]:
+                fetched_models = list(st.session_state[models_cache_key])
+                if saved_model_name and saved_model_name not in fetched_models:
+                    fetched_models.insert(0, saved_model_name)
+                    
+                cur_idx = fetched_models.index(saved_model_name) if saved_model_name in fetched_models else 0
+                
+                selected_model = st.selectbox(
+                    f"Выберите модель ({len(fetched_models)} доступно):",
+                    options=fetched_models,
+                    index=cur_idx,
+                    help="Список моделей автоматически подтянут с вашего сервера API"
+                )
+                manual_input = st.checkbox("✏️ Ввести другое название вручную", value=False)
+                if manual_input:
+                    openai_model = st.text_input("Название модели вручную:", value=selected_model)
+                else:
+                    openai_model = selected_model
+            else:
+                openai_model = st.text_input(
+                    "Название модели:",
+                    value=saved_model_name,
+                    help="Нажмите кнопку '🔄 Модели' выше, чтобы подтянуть список с сервера"
+                )
                         
             updates = {}
             if openai_base_url != saved_config.get("OPENAI_BASE_URL"):
