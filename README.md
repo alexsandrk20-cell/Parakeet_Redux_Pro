@@ -5,6 +5,7 @@
 [![Moondream AI](https://img.shields.io/badge/Moondream-Parakeet--Redux-7C3AED.svg?style=flat)](https://huggingface.co/moondream/parakeet-redux)
 [![Google Gemini](https://img.shields.io/badge/Gemini_API-3.8_Flash-4285F4.svg?style=flat&logo=google)](https://aistudio.google.com/)
 [![License: CC-BY-4.0](https://img.shields.io/badge/License-CC--BY--4.0-10B981.svg?style=flat)](https://creativecommons.org/licenses/by/4.0/)
+[![GitHub Topics](https://img.shields.io/badge/Topics-Speech--to--Text%20%7C%20Subtitles%20%7C%20Reels%20%7C%20Shorts%20%7C%20Gemini-blue)](https://github.com/alexsandrk20-cell/Parakeet_Redux_Pro/topics)
 
 Сверхбыстрое локальное распознавание речи на базе **`moondream/parakeet-redux`** (1.58-bit Ternary AI) с поддержкой **GPU CUDA**, **пословных таймкодов**, **караоке-субтитров для видеомонтажа** и умной постобработкой через **Google Gemini AI**.
 
@@ -51,11 +52,22 @@
    * **Умная компоновка строки:** короткие слова объединяются до 2–4 слов (до 20 знаков), идеально под вертикальный экран смартфона в 1 строку на блок.
    * **Длинные слова отдельно:** слова длиннее 12 символов (*«ПРИВЕТСТВОВАТЬ»*) автоматически ставятся отдельным блоком.
    * **Правило предлогов и союзов:** предлоги (*«с людьми»*, *«про глоссарий»*, *«на уроке»*, *«по автоматическому»*) всегда начинают новую строку и никогда не висят в конце фразы.
+   * **Защита от одиноких местоимений:** слова вроде *«я»*, *«мы»*, *«он»* никогда не изолируются в одну строку, а связываются с фразой.
    * **Замена «ё» на «е»:** автоматическая замена по всему тексту и субтитрам.
    * **⚡ Выделенная кнопка «Без пауз» (Gapless SRT):** таймкоды без разрывов (конец каждого титра равен началу следующего), субтитры не моргают и не оставляют пустой экран в Premiere Pro, CapCut и DaVinci Resolve.
 
-9. 🚀 **Удобный запуск в один клик:**
-   * Скрипт `run.bat` для быстрого запуска под Windows.
+9. 📱 **Интерактивный визуальный предпросмотр 9:16 в окне смартфона:**
+   * Реалистичный мокап экрана телефона с безопасной зоной соцсетей (Reels, Shorts, TikTok).
+   * Плеер таймлайна с управлением воспроизведением, перемоткой и скраббером.
+   * Переключение трендовых стилей субтитров на лету: 🟡 Hormozi Gold, ⚪ Clean White, 🟢 Neon Lime, 🔵 Cyber Cyan.
+   * Настройка размера шрифта (S/M/L) и синхронизированный интерактивный список с поиском.
+
+10. 🎯 **Библиотека системных промтов и редактор пресетов:**
+    * Встроенные профили: *Универсальный*, *Клиповый 9:16*, *Подкасты*, *IT и разработка*, *Пользовательский*.
+    * Возможность редактирования, сохранения и сброса промтов прямо из интерфейса.
+
+11. 🚀 **Удобный запуск в один клик:**
+    * Скрипт `run.bat` для быстрого запуска под Windows.
 
 ---
 
@@ -155,3 +167,10 @@
 Проект распространяется под лицензией [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/).  
 Оригинальная разработка: [47thtechcorner/RayCodes_Parakeet_Redux](https://github.com/47thtechcorner/RayCodes_Parakeet_Redux).  
 Модель ASR: [Moondream Parakeet-Redux](https://huggingface.co/moondream/parakeet-redux).
+
+---
+
+## 🏷️ Теги и ключевые слова для поиска (Topics & Keywords)
+
+`speech-to-text` • `transcription` • `subtitles` • `subtitles-generator` • `srt` • `vtt` • `shorts` • `reels` • `tiktok` • `parakeet` • `moondream` • `gemini` • `google-gemini` • `cuda` • `karaoke` • `capcut` • `davinci-resolve` • `premiere-pro` • `video-editing` • `streamlit` • `audio-processing` • `asr` • `ffmpeg` • `word-level-timestamps` • `gapless-subtitles` • `voice-recognition` • `subtitles-editor`
+
