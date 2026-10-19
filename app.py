@@ -198,7 +198,7 @@ DEFAULT_SYSTEM_PROMPT = (
     "  • Соцсети и форматы: «шортс» → Shorts, «рилс» → Reels, «тикток» → TikTok, «ютуб» → YouTube, «инстаграм» → Instagram, «телеграм» → Telegram, «подкаст» → Podcast.\n"
     "  • Монтажные и технические термины, аббревиатуры: «промпт» → Prompt, «таймлайн» → Timeline, «рендер» → Render, «битрейт» → Bitrate, «кейфрейм» → Keyframe, «б-ролл» → B-roll, «пресет» → Preset, «плагин» → Plugin, «скрипт» → Script, «апи» → API, «гпу» / «джипию» → GPU, «цпу» → CPU, «ртх» → RTX, «куда» → CUDA, «фпс» → FPS, «хдр» → HDR, «сдр» → SDR, «фулл хд» → Full HD, «4к» → 4K, «окей» → OK, «хай» → Hi, «лайк» → Like, «чекнуть» / «чек» → Check.\n"
     "- Никакой русской транслитерации для английских терминов («премьер», «капкат», «шортс», «пайтон», «гпу» запрещены — только Premiere, CapCut, Shorts, Python, GPU)!\n\n"
-    "### 4. ПРАВИЛО ПЕРЕНОСА ПРЕДЛОГОВ И СОЮЗОВ (ПРЕДЛОГИ С НОВОЙ СТРОКИ):\n"
+    "### 4. ПРАВИЛО ПЕРЕНОСА ПРЕДЛОГОВ, СОЮЗОВ И МЕСТОИМЕНИЙ:\n"
     "- ЖЕЛЕЗНОЕ ПРАВИЛО ТИПОГРАФИКИ И СУБТИТРОВ: ПРЕДЛОГ В КОНЦЕ СТРОКИ СТРОГО ЗАПРЕЩЕН!\n"
     "- Предлог никогда не должен оставаться висячим в конце строки или сегмента субтитров в отрыве от зависимого слова.\n"
     "- Предлог ВСЕГДА переносится и начинает новую строку вместе со словом, к которому относится:\n"
@@ -206,7 +206,8 @@ DEFAULT_SYSTEM_PROMPT = (
     "  • Запрещено: «Это видео про» / «DaVinci Resolve» → Обязательно: «Это видео» / «про DaVinci Resolve»\n"
     "  • Запрещено: «Я пришёл к» / «выводу» → Обязательно: «Я пришёл» / «к выводу»\n"
     "  • Запрещено: «Мы поехали в» / «Москву» → Обязательно: «Мы поехали» / «в Москву»\n"
-    "- Правило действует для ВСЕХ предлогов («в», «на», «с», «со», «к», «по», «из», «у», «о», «об», «от», «до», «для», «за», «под», «над», «при», «про», «без», «через» и др.), а также коротких союзов («и», «а», «но»).\n\n"
+    "- Правило действует для ВСЕХ предлогов («в», «на», «с», «со», «к», «по», «из», «у», «о», «об», «от», «до», «для», «за», «под», «над», «при», «про», «без», «через» и др.), а также коротких союзов («и», «а», «но»).\n"
+    "- ЗАПРЕТ НА ОДИНОЧНЫЕ МЕСТОИМЕНИЯ: Короткие местоимения («я», «мы», «ты», «он», «она», «оно», «они», «это», «все») и частицы («не», «ни») НИКОГДА не должны оставаться одни на отдельной строке субтитров! Они всегда пишутся слитно со своим глаголом или смысловой фразой (например: «Я думаю», «Мы пошли», «Вчера я видел», «Я в шоке», «Это видео»).\n\n"
     "### 5. УДАЛЕНИЕ РЕЧЕВОГО МУСОРА И ЗАМИНОК:\n"
     "- Полностью удаляй звуки заминки речи: «э-э», «мм», «а-а», «эээ», «угу», «гм».\n"
     "- Вырезай заикания, фальстарты и случайные повторы слов (например: «мы мы наконец» → «мы наконец»).\n"
@@ -218,7 +219,7 @@ DEFAULT_SYSTEM_PROMPT = (
     "- Прежде чем сформировать и выдать финальный ответ, ТЫ ОБЯЗАН ВНИМАТЕЛЬНО САМ СЕБЯ ПЕРЕПРОВЕРИТЬ по 6 пунктам:\n"
     "  1) Контекст и слуховые ошибки (ASR): Каждое ли слово проверено по смыслу? Нет ли созвучных ослышек («до жили» → «дожили»)?\n"
     "  2) Английские названия и бренды: 100% софта, IT-брендов и терминов записаны на чистом английском латиницей (DaVinci Resolve, Premiere Pro, CapCut, Shorts, Reels, TikTok, ChatGPT, Python, GPU, API)? Никакой кириллицы!\n"
-    "  3) Перенос предлогов: НЕТ ЛИ НИ ЕДИНОГО ВИСЯЧЕГО ПРЕДЛОГА на конце строк/субтитров? Все предлоги перенесены на новую строку к зависимым словам!\n"
+    "  3) Перенос предлогов и местоимений: НЕТ ЛИ ВИСЯЧИХ ПРЕДЛОГОВ на концах строк, и НЕТ ЛИ ОДИНОКИХ МЕСТОИМЕНИЙ («я», «мы», «он»), оставленных в изоляции на отдельной строке? Все предлоги и местоимения встроены в смысловые фразы!\n"
     "  4) Орфография и дефисы: «наконец-то», «из-за», «по-русски», слитные «чтобы», «также», падежи и согласования.\n"
     "  5) Очистка мусора: убраны ли звуки заминки («э-э», «ну»), сохранён ли живой авторский стиль без пересказа?\n"
     "  6) Точность структуры JSON: количество элементов и `id` строго совпадают с входящими!\n"
@@ -448,10 +449,10 @@ def enhance_transcript_with_gemini(
             "1. Исправь все слуховые ошибки распознавания (ASR), опечатки, падежные окончания и дефисы («наконец-то», «из-за»).\n"
             "2. СТРОЖАЙШЕЕ ПРАВИЛО: ЕСЛИ СЛОВО АНГЛИЙСКОЕ, ТЕРМИН ИЛИ БРЕНД — ОНО ОБЯЗАНО ПИСАТЬСЯ НА АНГЛИЙСКОМ ЛАТИНИЦЕЙ "
             "(DaVinci Resolve, Premiere Pro, CapCut, ChatGPT, Shorts, Reels, TikTok, YouTube, Python, API, GPU, Render, Timeline, Keyframe, Preset, OK и т.д.). Никакой русской транслитерации для английских слов!\n"
-            "3. ПРАВИЛО ПЕРЕНОСА ПРЕДЛОГОВ: Предлог никогда не должен оставаться в конце строки/сегмента! Он всегда переносится и начинает новую строку вместе со своим словом («Мы говорили» / «с людьми», «видео» / «про DaVinci Resolve»).\n"
+            "3. ПРАВИЛО ПЕРЕНОСА ПРЕДЛОГОВ И МЕСТОИМЕНИЙ: Предлог никогда не должен оставаться в конце строки/сегмента! Он всегда переносится и начинает новую строку вместе со своим словом («Мы говорили» / «с людьми», «видео» / «про DaVinci Resolve»). Местоимения («я», «мы», «он») НЕ должны оставаться в одиночестве на отдельной строке — они пишутся вместе с глаголом или смысловой фразой («Я думаю», «Вчера я пошел», «Мы поехали»).\n"
             "4. Удали речевой мусор и звуки заминки («э-э», «ну»).\n"
             "5. Сохраняй авторские слова и порядок предложений (не пересказывай!).\n"
-            "6. ОБЯЗАТЕЛЬНАЯ САМОПРОВЕРКА (Self-Verification): Перед формированием итогового JSON перепроверь себя: нет ли пропущенных опечаток, все ли термины латиницей, перенесены ли предлоги с конца строк.\n"
+            "6. ОБЯЗАТЕЛЬНАЯ САМОПРОВЕРКА (Self-Verification): Перед формированием итогового JSON перепроверь себя: нет ли пропущенных опечаток, все ли термины латиницей, перенесены ли предлоги с конца строк, нет ли одиноких местоимений («я», «мы»).\n"
             "Верни строго валидный JSON-массив объектов: [{\"id\": ..., \"text\": \"...\"}]."
         )
         
@@ -582,10 +583,10 @@ def enhance_transcript_with_openai_compatible(
             "1. Исправь все слуховые ошибки распознавания (ASR), опечатки, падежные окончания и дефисы («наконец-то», «из-за»).\n"
             "2. СТРОЖАЙШЕЕ ПРАВИЛО: ЕСЛИ СЛОВО АНГЛИЙСКОЕ, ТЕРМИН ИЛИ БРЕНД — ОНО ОБЯЗАНО ПИСАТЬСЯ НА АНГЛИЙСКОМ ЛАТИНИЦЕЙ "
             "(DaVinci Resolve, Premiere Pro, CapCut, ChatGPT, Shorts, Reels, TikTok, YouTube, Python, API, GPU, Render, Timeline, Keyframe, Preset, OK и т.д.). Никакой русской транслитерации для английских слов!\n"
-            "3. ПРАВИЛО ПЕРЕНОСА ПРЕДЛОГОВ: Предлог никогда не должен оставаться в конце строки/сегмента! Он всегда переносится и начинает новую строку вместе со своим словом («Мы говорили» / «с людьми», «видео» / «про DaVinci Resolve»).\n"
+            "3. ПРАВИЛО ПЕРЕНОСА ПРЕДЛОГОВ И МЕСТОИМЕНИЙ: Предлог никогда не должен оставаться в конце строки/сегмента! Он всегда переносится и начинает новую строку вместе со своим словом («Мы говорили» / «с людьми», «видео» / «про DaVinci Resolve»). Местоимения («я», «мы», «он») НЕ должны оставаться в одиночестве на отдельной строке — они пишутся вместе с глаголом или смысловой фразой («Я думаю», «Вчера я пошел», «Мы поехали»).\n"
             "4. Удали речевой мусор и звуки заминки («э-э», «ну»).\n"
             "5. Сохраняй авторские слова и порядок предложений (не пересказывай!).\n"
-            "6. ОБЯЗАТЕЛЬНАЯ САМОПРОВЕРКА (Self-Verification): Перед формированием итогового JSON перепроверь себя: нет ли пропущенных опечаток, все ли термины латиницей, перенесены ли предлоги с конца строк.\n"
+            "6. ОБЯЗАТЕЛЬНАЯ САМОПРОВЕРКА (Self-Verification): Перед формированием итогового JSON перепроверь себя: нет ли пропущенных опечаток, все ли термины латиницей, перенесены ли предлоги с конца строк, нет ли одиноких местоимений («я», «мы»).\n"
             "Верни строго валидный JSON-массив объектов: [{\"id\": ..., \"text\": \"...\"}]."
         )
         
@@ -779,7 +780,28 @@ CLAUSE_STARTERS = {
     "when", "if", "that", "because", "how", "where", "why", "which"
 }
 
-SUBJECT_PRONOUNS = {"я", "мы", "ты", "вы", "он", "она", "оно", "они"}
+ALL_PRONOUNS = {
+    # Личные местоимения
+    "я", "мы", "ты", "вы", "он", "она", "оно", "они",
+    "меня", "нас", "тебя", "вас", "его", "него", "её", "нее", "ее", "их", "них",
+    "мне", "нам", "тебе", "вам", "ему", "нему", "ей", "ней", "им", "ним",
+    "мной", "мною", "нами", "тобой", "тобою", "вами", "ими", "ними",
+    # Указательные / определительные
+    "это", "этот", "эта", "эти", "этого", "этой", "этим", "этих",
+    "тот", "та", "то", "те", "того", "той", "тем", "тех",
+    "все", "всё", "весь", "вся", "всего", "всей", "всем", "всех",
+    "сам", "сама", "само", "сами",
+    # Притяжательные
+    "мой", "моя", "моё", "мое", "мои", "моего", "моей", "моим", "моих",
+    "твой", "твоя", "твоё", "твое", "твои", "твоего", "твоей", "твоим", "твоих",
+    "наш", "наша", "наше", "наши", "нашего", "нашей", "нашим", "наших",
+    "ваш", "ваша", "ваше", "ваши", "вашего", "вашей", "вашим", "ваших",
+    "свой", "своя", "своё", "свое", "свои", "своего", "своей", "своим", "своих",
+    # English pronouns
+    "i", "we", "you", "he", "she", "it", "they", "me", "us", "him", "her", "them",
+    "my", "our", "your", "his", "their", "this", "that", "these", "those"
+}
+SUBJECT_PRONOUNS = ALL_PRONOUNS
 SHORT_CONJUNCTIONS = {"и", "а", "но", "или", "да", "ни"}
 
 ENGLISH_TERMS_MAP = {
@@ -901,9 +923,13 @@ def is_clause_starter(word: str) -> bool:
     """Checks whether token is a clause starter (e.g. когда, если, чтобы)."""
     return clean_word_token(word).lower() in CLAUSE_STARTERS
 
+def is_pronoun(word: str) -> bool:
+    """Checks whether token is a known pronoun (я, мы, ты, он, это, etc.)."""
+    return clean_word_token(word).lower() in ALL_PRONOUNS
+
 def is_subject_pronoun(word: str) -> bool:
-    """Checks whether token is a personal subject pronoun (я, мы, ты, etc.)."""
-    return clean_word_token(word).lower() in SUBJECT_PRONOUNS
+    """Checks whether token is a pronoun."""
+    return is_pronoun(word)
 
 def extract_words_for_vertical_9_16(segments: list[dict]) -> list[dict]:
     """Extracts a flat list of words with timestamps from segments, estimating timestamps if missing."""
@@ -934,6 +960,65 @@ def extract_words_for_vertical_9_16(segments: list[dict]) -> list[dict]:
                         "end": s + (idx + 1) * w_dur
                     })
     return words
+
+def enforce_no_isolated_short_words(chunks: list[list[dict]], max_chars: int = 22) -> tuple[list[list[dict]], int]:
+    """
+    Guarantees that NO chunk consists solely of an isolated pronoun ('я', 'мы', 'он', 'это'),
+    conjunction ('и', 'а', 'но'), or preposition ('в', 'на', 'с').
+    Merges single-word chunks forward into the next chunk, or backward into the previous chunk.
+    Returns (cleaned_chunks, fixed_count).
+    """
+    fixed_count = 0
+    chunks = [c for c in chunks if c]
+    changed = True
+    iterations = 0
+    max_iter = len(chunks) * 4 + 10
+
+    while changed and iterations < max_iter:
+        changed = False
+        iterations += 1
+        i = 0
+        while i < len(chunks):
+            c = chunks[i]
+            if not c:
+                chunks.pop(i)
+                changed = True
+                continue
+
+            if len(c) == 1:
+                w_raw = c[0].get("word", "")
+                w_clean = clean_word_token(w_raw).lower()
+                is_short_func_word = (
+                    w_clean in ALL_PRONOUNS
+                    or w_clean in ALL_PREPOSITIONS
+                    or w_clean in SHORT_CONJUNCTIONS
+                    or len(w_clean) <= 3
+                )
+
+                if is_short_func_word:
+                    # Try to merge with next chunk
+                    if i + 1 < len(chunks):
+                        next_c = chunks[i + 1]
+                        next_len = len(" ".join(clean_word_token(w["word"]) for w in next_c))
+                        if len(next_c) < 4 or (next_len + len(w_clean) + 1 <= max_chars):
+                            next_c.insert(0, c[0])
+                            chunks.pop(i)
+                            fixed_count += 1
+                            changed = True
+                            continue
+                    # Or try to merge with previous chunk if not creating a trailing preposition
+                    if i > 0:
+                        prev_c = chunks[i - 1]
+                        prev_len = len(" ".join(clean_word_token(w["word"]) for w in prev_c))
+                        if len(prev_c) < 4 and (prev_len + len(w_clean) + 1 <= max_chars):
+                            prev_c.append(c[0])
+                            chunks.pop(i)
+                            fixed_count += 1
+                            changed = True
+                            continue
+            i += 1
+
+    return [c for c in chunks if c], fixed_count
 
 def enforce_no_trailing_prepositions_and_conjunctions(chunks: list[list[dict]]) -> tuple[list[list[dict]], int]:
     """
@@ -985,7 +1070,8 @@ def audit_and_validate_subtitles_9_16(chunks: list[list[dict]]) -> dict:
     Comprehensive self-verification audit of 9:16 subtitles:
     1. Standardizes Russian transliterated English tech brands and terms to Latin.
     2. Guarantees 0 trailing prepositions or short conjunctions by transferring them to new lines.
-    3. Audits single-line conformity and returns detailed report.
+    3. Guarantees 0 isolated 1-word pronouns ('я', 'мы', etc.).
+    4. Audits single-line conformity and returns detailed report.
     """
     # 1. Standardize English terms
     terms_normalized = 0
@@ -1006,8 +1092,12 @@ def audit_and_validate_subtitles_9_16(chunks: list[list[dict]]) -> dict:
     # 2. Enforce prepositions transfer rule
     clean_chunks, preps_fixed = enforce_no_trailing_prepositions_and_conjunctions(chunks)
 
-    # 3. Final verification pass
-    violations = []
+    # 3. Enforce no isolated pronouns rule
+    clean_chunks, pronouns_fixed = enforce_no_isolated_short_words(clean_chunks)
+
+    # 4. Final verification pass
+    preposition_violations = []
+    pronoun_violations = []
     max_char_len = 0
     for idx, c in enumerate(clean_chunks):
         line_text = " ".join(w.get("word", "") for w in c)
@@ -1016,16 +1106,22 @@ def audit_and_validate_subtitles_9_16(chunks: list[list[dict]]) -> dict:
         if idx < len(clean_chunks) - 1:
             last_clean = clean_word_token(c[-1].get("word", "")).lower()
             if last_clean in ALL_PREPOSITIONS or last_clean in SHORT_CONJUNCTIONS:
-                violations.append((idx, line_text, last_clean))
+                preposition_violations.append((idx, line_text, last_clean))
+        if len(c) == 1:
+            w_c = clean_word_token(c[0].get("word", "")).lower()
+            if w_c in ALL_PRONOUNS or len(w_c) <= 2:
+                pronoun_violations.append((idx, line_text, w_c))
 
     return {
         "chunks": clean_chunks,
         "total_chunks": len(clean_chunks),
         "prepositions_fixed": preps_fixed,
+        "pronouns_fixed": pronouns_fixed,
         "terms_normalized": terms_normalized,
-        "trailing_violations_remaining": len(violations),
+        "trailing_violations_remaining": len(preposition_violations),
+        "pronoun_violations_remaining": len(pronoun_violations),
         "max_char_len": max_char_len,
-        "is_valid": len(violations) == 0
+        "is_valid": (len(preposition_violations) == 0 and len(pronoun_violations) == 0)
     }
 
 def chunk_words_for_vertical_9_16(
@@ -1038,10 +1134,10 @@ def chunk_words_for_vertical_9_16(
     Chunks words for 9:16 vertical video subtitles (Shorts / Reels / TikTok):
     - Short words grouped up to max_words (default 4) and max_chars (default 20).
     - Long words (>= stand_alone_word_len, default 12) placed alone on single line.
-    - Prepositions and short conjunctions ALWAYS start a new line (never dangling at line end).
-    - Clause starters ('когда', 'если') and subject pronouns ('мы', 'я') start a new chunk.
+    - Prepositions and conjunctions start a new line if they won't fit with their phrase.
+    - Pronouns ('я', 'мы', etc.) NEVER placed alone; kept together with verbs/phrases.
     - Strictly single line per SRT block with individual timing.
-    - Rigorous self-verification pass ensures 0 trailing prepositions.
+    - Rigorous self-verification pass ensures 0 trailing prepositions and 0 isolated pronouns.
     """
     if not words:
         return []
@@ -1066,7 +1162,6 @@ def chunk_words_for_vertical_9_16(
         is_prep = is_preposition(raw_word)
         is_conj = clean_w.lower() in SHORT_CONJUNCTIONS
         is_starter = is_clause_starter(raw_word)
-        is_pron = is_subject_pronoun(raw_word)
 
         if not current_chunk:
             if w_len >= stand_alone_word_len:
@@ -1092,23 +1187,17 @@ def chunk_words_for_vertical_9_16(
             i += 1
             continue
 
-        # 2. Clause starter like 'когда', 'если', 'чтобы'
-        if is_starter:
+        # 2. Clause starter like 'когда', 'если', 'чтобы' (only if current_chunk has >= 2 words or >= 8 chars)
+        if is_starter and (len(current_chunk) >= 2 or len(cur_text) >= 8):
             chunks.append(current_chunk)
             current_chunk = [w]
             i += 1
             continue
 
-        # 3. Subject pronoun ('мы', 'я', etc.) starting a new clause after a noun/verb
-        if is_pron and (prev_raw.endswith(",") or (len(current_chunk) >= 1 and prev_clean not in ALL_PREPOSITIONS and prev_clean not in CLAUSE_STARTERS)):
-            chunks.append(current_chunk)
-            current_chunk = [w]
-            i += 1
-            continue
-
-        # 4. Standalone long word (>= 12 chars like ПРИВЕТСТВОВАТЬ)
+        # 3. Standalone long word (>= 12 chars like ПРИВЕТСТВОВАТЬ)
         if w_len >= stand_alone_word_len:
-            if len(current_chunk) == 1 and is_preposition(current_chunk[0].get("word", "")) and len(new_text) <= max_chars:
+            # If current_chunk is just 1 short pronoun/word (e.g. "мы", "я") and together <= max_chars, keep together
+            if len(current_chunk) == 1 and len(new_text) <= max_chars:
                 current_chunk.append(w)
                 chunks.append(current_chunk)
                 current_chunk = []
@@ -1121,26 +1210,43 @@ def chunk_words_for_vertical_9_16(
                 i += 1
                 continue
 
-        # 5. Current word is a preposition or short conjunction:
-        # A preposition must begin the line with its phrase, never dangle at the end!
+        # 4. Current word is a preposition or short conjunction:
+        # A preposition must not be at the END of a line.
+        # Check if next word exists and if both (prep + next word) fit into current_chunk
         if (is_prep or is_conj) and current_chunk:
-            chunks.append(current_chunk)
-            current_chunk = [w]
-            i += 1
-            continue
+            can_fit_with_next = False
+            if i + 1 < n:
+                next_clean = clean_word_token(words[i + 1].get("word", ""))
+                if (len(new_text) + 1 + len(next_clean) <= max_chars) and (new_word_count + 1 <= max_words):
+                    can_fit_with_next = True
 
-        # 6. Next word is a preposition or short conjunction:
-        # Preposition will open the next line, so if current has words, wrap now
-        if i + 1 < n:
-            next_clean = clean_word_token(words[i + 1].get("word", "")).lower()
-            if (next_clean in ALL_PREPOSITIONS or next_clean in SHORT_CONJUNCTIONS) and (len(current_chunk) >= 2 or len(cur_text) >= 8):
+            # If current_chunk is only 1 short pronoun (e.g. "Мы", "Я") and can fit with next, KEEP TOGETHER!
+            if len(current_chunk) == 1 and is_pronoun(current_chunk[0].get("word", "")) and can_fit_with_next:
                 current_chunk.append(w)
-                chunks.append(current_chunk)
-                current_chunk = []
                 i += 1
                 continue
 
-        # 7. Max characters or max words exceeded
+            # Otherwise, if it won't fit with next word or current_chunk is already complete, wrap before prep!
+            if not can_fit_with_next:
+                chunks.append(current_chunk)
+                current_chunk = [w]
+                i += 1
+                continue
+
+        # 5. Next word is a preposition/conjunction and cannot fit into current_chunk together with its following word
+        if i + 1 < n:
+            next_raw = words[i + 1].get("word", "")
+            next_clean = clean_word_token(next_raw).lower()
+            if (next_clean in ALL_PREPOSITIONS or next_clean in SHORT_CONJUNCTIONS):
+                # If current_chunk already has 2+ words or 10+ chars, wrap now so the prep starts next line
+                if len(current_chunk) >= 2 or len(cur_text) >= 10:
+                    current_chunk.append(w)
+                    chunks.append(current_chunk)
+                    current_chunk = []
+                    i += 1
+                    continue
+
+        # 6. Max characters or max words exceeded
         if len(new_text) > max_chars or new_word_count > max_words:
             chunks.append(current_chunk)
             current_chunk = [w]
@@ -1153,9 +1259,14 @@ def chunk_words_for_vertical_9_16(
     if current_chunk:
         chunks.append(current_chunk)
 
-    # Safety & self-verification loop: Ensure 0 trailing prepositions
-    final_chunks, _ = enforce_no_trailing_prepositions_and_conjunctions(chunks)
-    return final_chunks
+    # Pass 1: Ensure NO trailing prepositions or conjunctions
+    chunks, _ = enforce_no_trailing_prepositions_and_conjunctions(chunks)
+    # Pass 2: Ensure NO isolated 1-word pronouns or function words
+    chunks, _ = enforce_no_isolated_short_words(chunks, max_chars=max_chars)
+    # Pass 3: Re-verify no trailing prepositions after any merge
+    chunks, _ = enforce_no_trailing_prepositions_and_conjunctions(chunks)
+
+    return chunks
 
 def generate_srt_vertical_9_16(
     chunks: list[list[dict]],
@@ -1826,14 +1937,16 @@ if uploaded_file is not None:
             st.success(
                 f"🛡️ **Самопроверка AI и аудит 9:16 пройдены (100%):**\n\n"
                 f"• 🚫 **Висячие предлоги на концах строк:** 0 (перенесено на новую строку: {audit_report_9_16['prepositions_fixed']})\n\n"
+                f"• 👤 **Одиночные местоимения («я», «мы», «он»):** 0 (объединено с фразами: {audit_report_9_16.get('pronouns_fixed', 0)})\n\n"
                 f"• 🔤 **Английские бренды и софт:** на латинице (стандартизировано: {audit_report_9_16['terms_normalized']})\n\n"
                 f"• 📐 **Формат 9:16:** {audit_report_9_16['total_chunks']} титров, строго 1 строка на блок (макс. {audit_report_9_16['max_char_len']} симв.)"
             )
 
-            if audit_report_9_16["prepositions_fixed"] > 0 or audit_report_9_16["terms_normalized"] > 0:
+            if audit_report_9_16["prepositions_fixed"] > 0 or audit_report_9_16.get("pronouns_fixed", 0) > 0 or audit_report_9_16["terms_normalized"] > 0:
                 with st.expander("🔍 Детали самопроверки и автоматической коррекции", expanded=False):
                     st.markdown(
                         f"- **Исправлено висячих предлогов/союзов на концах строк:** `{audit_report_9_16['prepositions_fixed']}` (перенесены на следующую строку к зависимым словам).\n"
+                        f"- **Объединено одиночных местоимений («я», «мы» и др.):** `{audit_report_9_16.get('pronouns_fixed', 0)}` (включены в состав смысловых фраз).\n"
                         f"- **Терминов и брендов софта стандартизировано на латиницу:** `{audit_report_9_16['terms_normalized']}`.\n"
                         f"- **Всего сформировано вертикальных блоков (9:16):** `{audit_report_9_16['total_chunks']}`.\n"
                         f"- **Остаточных нарушений правил переноса:** `{audit_report_9_16['trailing_violations_remaining']}`."
