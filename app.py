@@ -905,7 +905,7 @@ if uploaded_file is not None:
         tab_segments = tabs[0]
         tab_words = tabs[1]
         tab_subtitles = tabs[2]
-        tab_diff = tabs[3] if gemini_applied else None
+        tab_diff = tabs[3] if ai_applied else None
         
         # Process segments and words
         transcript_lines = []
