@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import tempfile
 import os
 import time
@@ -1444,17 +1445,16 @@ def chunk_words_for_vertical_9_16(
 
     return chunks
 
-def generate_srt_vertical_9_16(
+def build_vertical_9_16_preview_data(
     chunks: list[list[dict]],
     no_gaps: bool = False,
     case_mode: str = "upper",
     remove_punct: bool = True,
     replace_yo_flag: bool = True
-) -> str:
+) -> list[dict]:
     """
-    Generates single-line SubRip (.srt) subtitles optimized for 9:16 vertical videos.
-    If no_gaps=True, extends end times of subtitles to the start time of the next subtitle,
-    eliminating timeline gaps (караоке-лента без мерцания и пустых экранов).
+    Builds clean, structured subtitle items for 9:16 vertical video interactive preview and SRT export.
+    Returns: list of dicts [{'id': 1, 'start': 0.32, 'end': 1.68, 's_str': '00:00', 'text': '...', 'len': 17}, ...]
     """
     items = []
     for chunk in chunks:
@@ -1476,25 +1476,642 @@ def generate_srt_vertical_9_16(
         line_str = " ".join(words_text).strip()
         if line_str:
             items.append({
-                "start": start,
-                "end": max(end, start + 0.1),
+                "start": round(start, 2),
+                "end": round(max(end, start + 0.1), 2),
                 "text": line_str
             })
 
     if not items:
-        return ""
+        return []
 
     if no_gaps:
         for i in range(len(items) - 1):
             items[i]["end"] = max(items[i]["start"] + 0.05, items[i + 1]["start"])
 
-    srt_entries = []
+    result = []
     for idx, item in enumerate(items, 1):
+        s_secs = item["start"]
+        m = int(s_secs // 60)
+        s = int(s_secs % 60)
+        s_str = f"{m:02d}:{s:02d}"
+        result.append({
+            "id": idx,
+            "start": round(item["start"], 2),
+            "end": round(item["end"], 2),
+            "s_str": s_str,
+            "text": item["text"],
+            "len": len(item["text"])
+        })
+    return result
+
+def generate_srt_vertical_9_16(
+    chunks: list[list[dict]],
+    no_gaps: bool = False,
+    case_mode: str = "upper",
+    remove_punct: bool = True,
+    replace_yo_flag: bool = True
+) -> str:
+    """
+    Generates single-line SubRip (.srt) subtitles optimized for 9:16 vertical videos.
+    If no_gaps=True, extends end times of subtitles to the start time of the next subtitle,
+    eliminating timeline gaps (караоке-лента без мерцания и пустых экранов).
+    """
+    preview_items = build_vertical_9_16_preview_data(
+        chunks,
+        no_gaps=no_gaps,
+        case_mode=case_mode,
+        remove_punct=remove_punct,
+        replace_yo_flag=replace_yo_flag
+    )
+    if not preview_items:
+        return ""
+
+    srt_entries = []
+    for item in preview_items:
         s_str = format_time_srt(item["start"])
         e_str = format_time_srt(item["end"])
-        srt_entries.append(f"{idx}\n{s_str} --> {e_str}\n{item['text']}\n")
+        srt_entries.append(f"{item['id']}\n{s_str} --> {e_str}\n{item['text']}\n")
 
     return "\n".join(srt_entries)
+
+def generate_9_16_phone_widget(preview_items: list[dict]) -> str:
+    """
+    Generates a high-fidelity interactive 9:16 mobile phone simulator HTML widget
+    to preview vertical subtitles (Shorts / Reels / TikTok) directly in Streamlit.
+    """
+    if not preview_items:
+        return """
+        <div style="color: #888; padding: 30px; text-align: center; font-family: sans-serif; background: rgba(255,255,255,0.03); border-radius: 12px;">
+            📱 Нет доступных субтитров для отображения в формате 9:16.
+        </div>
+        """
+
+    subtitles_json = json.dumps(preview_items, ensure_ascii=False)
+    total_count = len(preview_items)
+    first_text = preview_items[0]["text"] if total_count > 0 else ""
+
+    html_template = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+  body {
+    background-color: transparent;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #e0e0e0;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 8px 4px;
+  }
+  
+  .preview-wrapper {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    width: 100%;
+    max-width: 960px;
+    justify-content: center;
+    align-items: flex-start;
+  }
+
+  /* 9:16 Phone Mockup */
+  .phone-frame {
+    width: 300px;
+    height: 540px;
+    background: #000;
+    border-radius: 38px;
+    box-shadow: 0 20px 45px -10px rgba(0,0,0,0.85), 0 0 0 6px #1f1f28, 0 0 0 9px #353545;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+
+  .phone-screen {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 35%, #1e1b4b 0%, #09090e 65%, #050508 100%);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    overflow: hidden;
+  }
+
+  /* Notch */
+  .notch {
+    position: absolute;
+    top: 9px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 86px;
+    height: 20px;
+    background: #000;
+    border-radius: 12px;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .camera-dot { width: 7px; height: 7px; background: #161622; border-radius: 50%; border: 1px solid #2b2b3c; }
+
+  /* Status Bar */
+  .status-bar {
+    padding: 10px 18px 4px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.75);
+    z-index: 40;
+  }
+
+  /* Mock Social Rail (Shorts / Reels style) */
+  .social-rail {
+    position: absolute;
+    right: 10px;
+    bottom: 115px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    align-items: center;
+    z-index: 25;
+    opacity: 0.65;
+  }
+  .social-icon {
+    width: 32px;
+    height: 32px;
+    background: rgba(255,255,255,0.12);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    backdrop-filter: blur(4px);
+  }
+
+  /* Safe Zone Marker */
+  .safe-zone-hint {
+    position: absolute;
+    top: 48px;
+    left: 12px;
+    font-size: 10px;
+    color: rgba(255,255,255,0.3);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    font-weight: 600;
+    pointer-events: none;
+  }
+
+  /* Captions Container (Bottom 30% safe zone) */
+  .caption-area {
+    position: absolute;
+    bottom: 110px;
+    left: 14px;
+    right: 50px;
+    min-height: 85px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    z-index: 30;
+    padding: 6px 8px;
+    border-radius: 10px;
+  }
+
+  .caption-text {
+    font-family: 'Impact', 'Arial Black', -apple-system, sans-serif;
+    font-size: 25px;
+    line-height: 1.18;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    text-align: center;
+    word-break: break-word;
+    transition: transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+
+  /* Caption Themes */
+  .theme-gold {
+    color: #FFE600;
+    -webkit-text-stroke: 1.4px #000000;
+    text-shadow: 0 3px 8px rgba(0,0,0,0.95), -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+  }
+  .theme-white {
+    color: #FFFFFF;
+    -webkit-text-stroke: 1.4px #000000;
+    text-shadow: 0 3px 8px rgba(0,0,0,0.95), -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+  }
+  .theme-lime {
+    color: #22FF66;
+    -webkit-text-stroke: 1.4px #000000;
+    text-shadow: 0 0 12px rgba(34,255,102,0.65), 0 3px 8px rgba(0,0,0,0.95), -1px -1px 0 #000, 1px -1px 0 #000;
+  }
+  .theme-cyan {
+    color: #00E5FF;
+    -webkit-text-stroke: 1.4px #000000;
+    text-shadow: 0 0 12px rgba(0,229,255,0.65), 0 3px 8px rgba(0,0,0,0.95), -1px -1px 0 #000, 1px -1px 0 #000;
+  }
+
+  /* Bottom Player Bar inside Phone */
+  .player-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 10px 14px 18px;
+    background: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.85) 35%, #000 100%);
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .progress-slider {
+    width: 100%;
+    -webkit-appearance: none;
+    height: 4px;
+    background: rgba(255,255,255,0.22);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+  .progress-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #ff4b4b;
+    cursor: pointer;
+  }
+  .controls-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .time-badge {
+    font-size: 11px;
+    font-family: monospace;
+    color: rgba(255,255,255,0.85);
+  }
+  .btn-play {
+    background: #ff4b4b;
+    border: none;
+    color: #fff;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.1s;
+  }
+  .btn-play:active { transform: scale(0.92); }
+  .btn-nav {
+    background: rgba(255,255,255,0.14);
+    border: none;
+    color: #fff;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Sidebar Controls & Playlist */
+  .sidebar-panel {
+    flex: 1;
+    min-width: 310px;
+    max-width: 580px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .card-box {
+    background: rgba(28, 28, 38, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 14px;
+    padding: 12px 14px;
+    backdrop-filter: blur(12px);
+  }
+  .style-pills {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+  }
+  .pill-btn {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #ccc;
+    padding: 5px 10px;
+    border-radius: 16px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .pill-btn.active {
+    background: #ff4b4b;
+    border-color: #ff4b4b;
+    color: #fff;
+    font-weight: 600;
+  }
+
+  /* Subtitle List */
+  .sub-list {
+    max-height: 330px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding-right: 4px;
+  }
+  .sub-list::-webkit-scrollbar { width: 5px; }
+  .sub-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+
+  .sub-item {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 9px;
+    padding: 7px 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.12s;
+  }
+  .sub-item:hover {
+    background: rgba(255,255,255,0.09);
+    border-color: rgba(255,255,255,0.18);
+  }
+  .sub-item.active {
+    background: rgba(255, 75, 75, 0.2);
+    border-color: #ff4b4b;
+    color: #fff;
+    font-weight: 600;
+  }
+  .sub-meta {
+    font-size: 10px;
+    font-family: monospace;
+    color: rgba(255,255,255,0.45);
+    margin-right: 8px;
+    white-space: nowrap;
+  }
+  .sub-chars {
+    font-size: 10px;
+    padding: 1px 5px;
+    background: rgba(255,255,255,0.09);
+    border-radius: 8px;
+    color: #aaa;
+    white-space: nowrap;
+    margin-left: 8px;
+  }
+  .search-box {
+    width: 100%;
+    padding: 7px 10px;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    color: #fff;
+    font-size: 12px;
+    outline: none;
+    margin-bottom: 8px;
+  }
+  .search-box:focus {
+    border-color: #ff4b4b;
+  }
+</style>
+</head>
+<body>
+
+<div class="preview-wrapper">
+  <!-- 9:16 Phone Window -->
+  <div class="phone-frame">
+    <div class="phone-screen">
+      <!-- Notch & Status -->
+      <div class="notch"><div class="camera-dot"></div></div>
+      <div class="status-bar">
+        <span>09:41</span>
+        <span>⚡ 9:16</span>
+      </div>
+
+      <div class="safe-zone-hint">9:16 Safe Zone</div>
+
+      <!-- Social rail icons (TikTok/Reels style) -->
+      <div class="social-rail">
+        <div class="social-icon">❤️</div>
+        <div class="social-icon">💬</div>
+        <div class="social-icon">🔖</div>
+        <div class="social-icon">↗️</div>
+      </div>
+
+      <!-- Live Caption on 9:16 Screen -->
+      <div class="caption-area" id="captionArea">
+        <div class="caption-text theme-gold" id="captionText">%%FIRST_TEXT%%</div>
+      </div>
+
+      <!-- Bottom player bar inside Phone -->
+      <div class="player-bar">
+        <input type="range" class="progress-slider" id="scrubber" min="0" max="100" value="0" step="0.05">
+        <div class="controls-row">
+          <button class="btn-nav" id="btnPrev" title="Предыдущий титр">⏮</button>
+          <button class="btn-play" id="btnPlay" title="Воспроизвести / Пауза">▶</button>
+          <button class="btn-nav" id="btnNext" title="Следующий титр">⏭</button>
+          <span class="time-badge" id="timeBadge">00:00 / 00:00</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sidebar Controls & Subtitle Playlist -->
+  <div class="sidebar-panel">
+    <!-- Style Settings -->
+    <div class="card-box">
+      <div style="font-size: 12px; font-weight: 600; margin-bottom: 4px;">🎨 Стиль субтитров в окне:</div>
+      <div class="style-pills">
+        <button class="pill-btn theme-pill active" onclick="setTheme('theme-gold', this)">🟡 Gold (Hormozi)</button>
+        <button class="pill-btn theme-pill" onclick="setTheme('theme-white', this)">⚪ Clean White</button>
+        <button class="pill-btn theme-pill" onclick="setTheme('theme-lime', this)">🟢 Neon Lime</button>
+        <button class="pill-btn theme-pill" onclick="setTheme('theme-cyan', this)">🔵 Cyber Cyan</button>
+      </div>
+      <div style="display:flex; justify-content: space-between; align-items:center; margin-top: 8px;">
+        <span style="font-size:11px; color:#aaa;">Размер шрифта:</span>
+        <div style="display:flex; gap:6px;">
+          <button class="pill-btn font-pill" onclick="setFontSize('21px', this)">S (21px)</button>
+          <button class="pill-btn font-pill active" onclick="setFontSize('25px', this)">M (25px)</button>
+          <button class="pill-btn font-pill" onclick="setFontSize('30px', this)">L (30px)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Subtitle Playlist -->
+    <div class="card-box">
+      <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom: 8px;">
+        <span style="font-size: 12px; font-weight: 600;">📑 Клиповые титры 9:16:</span>
+        <span style="font-size: 11px; color: #ff4b4b; font-weight: 600;" id="counterBadge">1 / %%TOTAL_COUNT%%</span>
+      </div>
+      <input type="text" class="search-box" id="searchInput" placeholder="🔍 Найти слово в субтитрах..." oninput="filterSubs()">
+      <div class="sub-list" id="subList"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const subtitles = %%SUBTITLES_JSON%%;
+  let currentIndex = 0;
+  let isPlaying = false;
+  let playInterval = null;
+  let currentTime = 0;
+  const maxTime = subtitles.length > 0 ? subtitles[subtitles.length - 1].end : 0;
+
+  const captionText = document.getElementById('captionText');
+  const scrubber = document.getElementById('scrubber');
+  const timeBadge = document.getElementById('timeBadge');
+  const counterBadge = document.getElementById('counterBadge');
+  const btnPlay = document.getElementById('btnPlay');
+  const subList = document.getElementById('subList');
+
+  if (scrubber) scrubber.max = maxTime;
+
+  function formatTime(s) {
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+  }
+
+  function renderList() {
+    if (!subList) return;
+    subList.innerHTML = '';
+    subtitles.forEach((s, idx) => {
+      const item = document.createElement('div');
+      item.className = 'sub-item' + (idx === currentIndex ? ' active' : '');
+      item.id = `sub-row-${idx}`;
+      item.innerHTML = `
+        <div style="display:flex; align-items:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+          <span class="sub-meta">#${s.id} [${s.s_str}]</span>
+          <span style="overflow:hidden; text-overflow:ellipsis;">${s.text}</span>
+        </div>
+        <span class="sub-chars">${s.len} зн</span>
+      `;
+      item.onclick = () => selectSubtitle(idx);
+      subList.appendChild(item);
+    });
+  }
+
+  function selectSubtitle(idx) {
+    if (!subtitles || subtitles.length === 0 || idx < 0 || idx >= subtitles.length) return;
+    currentIndex = idx;
+    currentTime = subtitles[idx].start;
+    updateDisplay();
+  }
+
+  function updateDisplay() {
+    if (!subtitles || subtitles.length === 0) return;
+    const cur = subtitles[currentIndex];
+    if (!cur) return;
+    captionText.textContent = cur.text;
+    captionText.style.transform = 'scale(0.92)';
+    setTimeout(() => { captionText.style.transform = 'scale(1)'; }, 40);
+
+    if (scrubber) scrubber.value = currentTime;
+    if (timeBadge) timeBadge.textContent = `${formatTime(currentTime)} / ${formatTime(maxTime)}`;
+    if (counterBadge) counterBadge.textContent = `${currentIndex + 1} / ${subtitles.length}`;
+
+    document.querySelectorAll('.sub-item').forEach((el, i) => {
+      el.classList.toggle('active', i === currentIndex);
+    });
+    const activeEl = document.getElementById(`sub-row-${currentIndex}`);
+    if (activeEl) {
+      activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
+
+  function togglePlay() {
+    isPlaying = !isPlaying;
+    if (btnPlay) btnPlay.textContent = isPlaying ? '⏸' : '▶';
+    if (isPlaying) {
+      const stepMs = 50;
+      playInterval = setInterval(() => {
+        currentTime += (stepMs / 1000);
+        if (currentTime > maxTime) {
+          currentTime = 0;
+          currentIndex = 0;
+        }
+        for (let i = 0; i < subtitles.length; i++) {
+          if (currentTime >= subtitles[i].start && currentTime <= subtitles[i].end) {
+            if (currentIndex !== i) {
+              currentIndex = i;
+              updateDisplay();
+            }
+            break;
+          }
+        }
+        if (scrubber) scrubber.value = currentTime;
+        if (timeBadge) timeBadge.textContent = `${formatTime(currentTime)} / ${formatTime(maxTime)}`;
+      }, stepMs);
+    } else {
+      clearInterval(playInterval);
+    }
+  }
+
+  if (btnPlay) btnPlay.onclick = togglePlay;
+  const btnPrev = document.getElementById('btnPrev');
+  if (btnPrev) btnPrev.onclick = () => selectSubtitle(Math.max(0, currentIndex - 1));
+  const btnNext = document.getElementById('btnNext');
+  if (btnNext) btnNext.onclick = () => selectSubtitle(Math.min(subtitles.length - 1, currentIndex + 1));
+
+  if (scrubber) {
+    scrubber.oninput = (e) => {
+      currentTime = parseFloat(e.target.value);
+      for (let i = 0; i < subtitles.length; i++) {
+        if (currentTime >= subtitles[i].start && currentTime <= subtitles[i].end) {
+          currentIndex = i;
+          break;
+        }
+      }
+      updateDisplay();
+    };
+  }
+
+  window.setTheme = function(cls, btn) {
+    captionText.className = 'caption-text ' + cls;
+    document.querySelectorAll('.theme-pill').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+  };
+
+  window.setFontSize = function(sz, btn) {
+    captionText.style.fontSize = sz;
+    document.querySelectorAll('.font-pill').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+  };
+
+  window.filterSubs = function() {
+    const q = document.getElementById('searchInput').value.toLowerCase();
+    document.querySelectorAll('.sub-item').forEach((el, i) => {
+      const txt = subtitles[i].text.toLowerCase();
+      el.style.display = txt.includes(q) ? 'flex' : 'none';
+    });
+  };
+
+  renderList();
+  updateDisplay();
+</script>
+</body>
+</html>
+"""
+    return (
+        html_template
+        .replace("%%SUBTITLES_JSON%%", subtitles_json)
+        .replace("%%FIRST_TEXT%%", first_text)
+        .replace("%%TOTAL_COUNT%%", str(total_count))
+    )
 
 def convert_to_wav(input_path: str, output_path: str) -> float:
     """Uses system FFmpeg to convert media input to a clean 16kHz Mono PCM WAV audio file. Returns conversion duration in seconds."""
@@ -2220,8 +2837,21 @@ if uploaded_file is not None:
                 help="Скачать субтитры 9:16 для монтажа в Shorts / Reels / TikTok"
             )
 
-            st.caption("Оптимизировано для вертикального видео: 1 строка на блок (до 20 знаков), предлоги и союзы перенесены вперед, длинные слова стоят отдельно.")
-            st.text_area("9:16 SRT Preview", srt_9_16, height=260)
+            # 9:16 Visual Phone Preview Window
+            preview_items_9_16 = build_vertical_9_16_preview_data(
+                chunks_9_16,
+                no_gaps=remove_pauses,
+                case_mode=case_mode,
+                remove_punct=remove_punctuation,
+                replace_yo_flag=replace_yo_char
+            )
+            if preview_items_9_16:
+                st.markdown("##### 📱 Интерактивный предпросмотр 9:16 (Визуализация в окне смартфона)")
+                components.html(generate_9_16_phone_widget(preview_items_9_16), height=640, scrolling=False)
+
+            with st.expander("📄 Сырой текст субтитров 9:16 (.srt)", expanded=False):
+                st.caption("Оптимизировано для вертикального видео: 1 строка на блок (до 20 знаков), предлоги и союзы перенесены вперед, длинные слова стоят отдельно.")
+                st.text_area("9:16 SRT Text", srt_9_16, height=220)
 
             st.markdown("---")
             st.markdown("#### 🎬 Другие форматы субтитров")
