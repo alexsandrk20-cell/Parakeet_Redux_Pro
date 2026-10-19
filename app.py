@@ -1258,6 +1258,11 @@ with st.sidebar:
         value=True,
         help="Автоматически заменяет все буквы «ё» и «Ё» на «е» и «Е» в тексте и субтитрах"
     )
+    remove_pauses = st.checkbox(
+        "⚡ Убрать паузы между субтитрами",
+        value=True,
+        help="Режим «Без пауз» (Gapless): устраняет зазоры между титрами, растягивая каждый блок до начала следующего. Действует на все типы субтитров (9:16, обычные, пословные)."
+    )
     case_mode = st.radio(
         "Регистр букв (Case):",
         options=["upper", "none", "lower", "title"],
@@ -1547,13 +1552,37 @@ if uploaded_file is not None:
             else:
                 st.info("В выбранном режиме пословные таймкоды не формировались. Переключите режим в боковом меню на 'По словам и предложениям'.")
         
-        # Generate subtitle formats with punct stripping, filler removal, case formatting, and yo-replacement
-        srt_standard = generate_srt(processed_segments, word_level=False, remove_punct=remove_punctuation, case_mode=case_mode, replace_yo_flag=replace_yo_char, no_gaps=False)
-        srt_standard_gapless = generate_srt(processed_segments, word_level=False, remove_punct=remove_punctuation, case_mode=case_mode, replace_yo_flag=replace_yo_char, no_gaps=True)
-        srt_word_level = generate_srt(processed_segments, word_level=True, remove_punct=remove_punctuation, case_mode=case_mode, replace_yo_flag=replace_yo_char, no_gaps=False) if all_words_list else ""
-        srt_word_level_gapless = generate_srt(processed_segments, word_level=True, remove_punct=remove_punctuation, case_mode=case_mode, replace_yo_flag=replace_yo_char, no_gaps=True) if all_words_list else ""
-        vtt_standard = generate_vtt(processed_segments, word_level=False, remove_punct=remove_punctuation, case_mode=case_mode, replace_yo_flag=replace_yo_char)
-        vtt_word_level = generate_vtt(processed_segments, word_level=True, remove_punct=remove_punctuation, case_mode=case_mode, replace_yo_flag=replace_yo_char) if all_words_list else ""
+        # Generate subtitle formats with punct stripping, filler removal, case formatting, yo-replacement, and pause setting
+        srt_standard = generate_srt(
+            processed_segments,
+            word_level=False,
+            remove_punct=remove_punctuation,
+            case_mode=case_mode,
+            replace_yo_flag=replace_yo_char,
+            no_gaps=remove_pauses
+        )
+        srt_word_level = generate_srt(
+            processed_segments,
+            word_level=True,
+            remove_punct=remove_punctuation,
+            case_mode=case_mode,
+            replace_yo_flag=replace_yo_char,
+            no_gaps=remove_pauses
+        ) if all_words_list else ""
+        vtt_standard = generate_vtt(
+            processed_segments,
+            word_level=False,
+            remove_punct=remove_punctuation,
+            case_mode=case_mode,
+            replace_yo_flag=replace_yo_char
+        )
+        vtt_word_level = generate_vtt(
+            processed_segments,
+            word_level=True,
+            remove_punct=remove_punctuation,
+            case_mode=case_mode,
+            replace_yo_flag=replace_yo_char
+        ) if all_words_list else ""
         
         # 9:16 Vertical video subtitles (Shorts / Reels / TikTok)
         words_9_16 = extract_words_for_vertical_9_16(processed_segments)
@@ -1563,16 +1592,9 @@ if uploaded_file is not None:
             max_words=max_words_9_16,
             stand_alone_word_len=standalone_len_9_16
         )
-        srt_9_16_gapless = generate_srt_vertical_9_16(
-            chunks_9_16,
-            no_gaps=True,
-            case_mode=case_mode,
-            remove_punct=remove_punctuation,
-            replace_yo_flag=replace_yo_char
-        )
         srt_9_16 = generate_srt_vertical_9_16(
             chunks_9_16,
-            no_gaps=False,
+            no_gaps=remove_pauses,
             case_mode=case_mode,
             remove_punct=remove_punctuation,
             replace_yo_flag=replace_yo_char
@@ -1581,39 +1603,23 @@ if uploaded_file is not None:
         # Tab 3: Subtitles preview
         with tab_subtitles:
             st.markdown("#### 📱 Клиповые субтитры 9:16 (Shorts / Reels / TikTok)")
+            if remove_pauses:
+                st.caption("⚡ **Режим «Без пауз» (Gapless)** активен: зазоры между титрами устранены (настроено в боковом меню).")
+            else:
+                st.caption("⏱️ **Режим «С паузами»** активен: естественные паузы тишины сохранены (настроено в боковом меню).")
 
-            # Dedicated prominent button right in Tab 3
-            btn_t1, btn_t2 = st.columns(2)
-            with btn_t1:
-                st.download_button(
-                    label="⚡ КНОПКА: УБРАТЬ ПАУЗЫ (Скачать 9:16 .srt)",
-                    data=srt_9_16_gapless,
-                    file_name=f"{base_name}_9_16_no_pauses.srt",
-                    mime="text/plain",
-                    use_container_width=True,
-                    type="primary",
-                    help="Скачать субтитры 9:16 без зазоров между фразами для моментального монтажа"
-                )
-            with btn_t2:
-                st.download_button(
-                    label="📱 Скачать 9:16 с паузами (.srt)",
-                    data=srt_9_16,
-                    file_name=f"{base_name}_9_16_with_pauses.srt",
-                    mime="text/plain",
-                    use_container_width=True,
-                    help="Субтитры 9:16 с сохранением естественных пауз"
-                )
+            st.download_button(
+                label=f"📱 Скачать субтитры 9:16 (.srt) {'⚡ (Без пауз)' if remove_pauses else ''}",
+                data=srt_9_16,
+                file_name=f"{base_name}_9_16.srt",
+                mime="text/plain",
+                use_container_width=True,
+                type="primary",
+                help="Скачать субтитры 9:16 для монтажа в Shorts / Reels / TikTok"
+            )
 
             st.caption("Оптимизировано для вертикального видео: 1 строка на блок (до 20 знаков), предлоги и союзы перенесены вперед, длинные слова стоят отдельно.")
-            sub_916_col1, sub_916_col2 = st.columns(2)
-            with sub_916_col1:
-                st.markdown("##### ⚡ 9:16 Без пауз (Рекомендуется для Reels/Shorts)")
-                st.caption("Каждый блок продлен до старта следующего (без темного экрана и мигания).")
-                st.text_area("9:16 Gapless SRT Preview", srt_9_16_gapless, height=260)
-            with sub_916_col2:
-                st.markdown("##### ⏱️ 9:16 С естественными паузами")
-                st.caption("Таймкоды сохраняют зазоры и естественные паузы между фразами.")
-                st.text_area("9:16 Standard SRT Preview", srt_9_16, height=260)
+            st.text_area("9:16 SRT Preview", srt_9_16, height=260)
 
             st.markdown("---")
             st.markdown("#### 🎬 Другие форматы субтитров")
@@ -1707,14 +1713,8 @@ if uploaded_file is not None:
         os.makedirs("outputs", exist_ok=True)
         with open(os.path.join("outputs", "outputs.md"), "w", encoding="utf-8") as f:
             f.write(full_report)
-        with open(os.path.join("outputs", "subtitles_9_16_no_pauses.srt"), "w", encoding="utf-8") as f:
-            f.write(srt_9_16_gapless)
-        with open(os.path.join("outputs", "subtitles_9_16_gapless.srt"), "w", encoding="utf-8") as f:
-            f.write(srt_9_16_gapless)
         with open(os.path.join("outputs", "subtitles_9_16.srt"), "w", encoding="utf-8") as f:
             f.write(srt_9_16)
-        with open(os.path.join("outputs", "subtitles_no_pauses.srt"), "w", encoding="utf-8") as f:
-            f.write(srt_standard_gapless)
         with open(os.path.join("outputs", "subtitles.srt"), "w", encoding="utf-8") as f:
             f.write(srt_standard)
         if srt_word_level:
@@ -1727,61 +1727,63 @@ if uploaded_file is not None:
         st.markdown("---")
         st.subheader("📥 Скачать результаты")
 
-        st.markdown("##### 📱 Клиповые субтитры 9:16 (Shorts / Reels / TikTok)")
-        v_col1, v_col2 = st.columns(2)
-        v_col1.download_button(
-            label="⚡ КНОПКА: УБРАТЬ ПАУЗЫ (9:16 .srt)",
-            data=srt_9_16_gapless,
-            file_name=f"{base_name}_9_16_no_pauses.srt",
+        d_cols = st.columns(5 if srt_word_level else 4)
+        
+        d_cols[0].download_button(
+            label=f"📱 9:16 (.srt) {'⚡' if remove_pauses else ''}",
+            data=srt_9_16,
+            file_name=f"{base_name}_9_16.srt",
             mime="text/plain",
             use_container_width=True,
             type="primary",
-            help="Рекомендуется для Reels/Shorts: таймкоды без разрывов, субтитры не моргают"
+            help="Клиповые субтитры 9:16 для Shorts / Reels / TikTok"
         )
-        v_col2.download_button(
-            label="📱 9:16 С паузами (.srt)",
-            data=srt_9_16,
-            file_name=f"{base_name}_9_16_with_pauses.srt",
-            mime="text/plain",
-            use_container_width=True,
-            help="Субтитры 9:16 с сохранением естественных пауз тишины"
-        )
-
-        st.markdown("##### 🎬 Другие форматы и отчёты")
-        dcol1, dcol2, dcol3, dcol4 = st.columns(4)
-        
-        dcol1.download_button(
+        d_cols[1].download_button(
             label="🎬 Обычные (.srt)",
             data=srt_standard,
             file_name=f"{base_name}.srt",
             mime="text/plain",
-            use_container_width=True
+            use_container_width=True,
+            help="Стандартные субтитры по предложениям"
         )
         if srt_word_level:
-            dcol2.download_button(
-                label="⏱️ Пословный SRT (.srt)",
+            d_cols[2].download_button(
+                label="⏱️ Пословные (.srt)",
                 data=srt_word_level,
                 file_name=f"{base_name}_words.srt",
                 mime="text/plain",
+                use_container_width=True,
+                help="Пословные караоке-субтитры"
+            )
+            d_cols[3].download_button(
+                label="📥 Отчёт (.md)",
+                data=full_report,
+                file_name=f"{base_name}_report.md",
+                mime="text/markdown",
+                use_container_width=True
+            )
+            d_cols[4].download_button(
+                label="📊 JSON (.json)",
+                data=full_json_export,
+                file_name=f"{base_name}_words.json",
+                mime="application/json",
                 use_container_width=True
             )
         else:
-            dcol2.empty()
-        
-        dcol3.download_button(
-            label="📥 Отчёт (.md)",
-            data=full_report,
-            file_name=f"{base_name}_report.md",
-            mime="text/markdown",
-            use_container_width=True
-        )
-        dcol4.download_button(
-            label="📊 Данные JSON (.json)",
-            data=full_json_export,
-            file_name=f"{base_name}_words.json",
-            mime="application/json",
-            use_container_width=True
-        )
+            d_cols[2].download_button(
+                label="📥 Отчёт (.md)",
+                data=full_report,
+                file_name=f"{base_name}_report.md",
+                mime="text/markdown",
+                use_container_width=True
+            )
+            d_cols[3].download_button(
+                label="📊 JSON (.json)",
+                data=full_json_export,
+                file_name=f"{base_name}_words.json",
+                mime="application/json",
+                use_container_width=True
+            )
         
     except Exception as e:
         st.error(f'Ошибка при обработке результатов: {e}')
