@@ -27,7 +27,7 @@ def load_env_config() -> dict[str, str]:
     config = {
         "AI_PROVIDER": os.environ.get("AI_PROVIDER", "gemini"),
         "GEMINI_API_KEY": os.environ.get("GEMINI_API_KEY", ""),
-        "OPENAI_BASE_URL": os.environ.get("OPENAI_BASE_URL", "https://api.reformboss.com/v1"),
+        "OPENAI_BASE_URL": os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
         "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY", ""),
         "OPENAI_MODEL": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
     }
@@ -73,13 +73,13 @@ def test_gemini_api_connection(api_key: str, model_name: str) -> tuple[bool, str
         return False, f"Ошибка подключения к Gemini: {e}"
 
 def test_openai_api_connection(base_url: str, api_key: str, model_name: str) -> tuple[bool, str]:
-    """Tests connection to an OpenAI-compatible API endpoint (e.g. ReformBoss, OpenRouter, vLLM)."""
+    """Tests connection to an OpenAI-compatible API endpoint."""
     import time
     from openai import OpenAI
     
     clean_url = base_url.strip().rstrip("/")
     if not clean_url:
-        return False, "Укажите Base URL провайдера (например, https://api.reformboss.com/v1)"
+        return False, "Укажите Base URL провайдера (например, https://api.openai.com/v1)"
     if not api_key.strip():
         return False, "Укажите API Key"
         
@@ -391,7 +391,7 @@ def enhance_transcript_with_openai_compatible(
     progress_bar = None,
     status_text = None
 ) -> list[dict]:
-    """Uses an OpenAI-compatible API (ReformBoss, OpenRouter, vLLM, DeepSeek, Local LLM)
+    """Uses an OpenAI-compatible API (OpenRouter, vLLM, DeepSeek, Local LLM)
     to fix transcription errors, remove speech fillers, and polish words while preserving and aligning timestamps."""
     from openai import OpenAI
     
@@ -628,7 +628,7 @@ with st.sidebar:
     ai_provider = saved_config.get("AI_PROVIDER", "gemini")
     gemini_api_key = saved_config.get("GEMINI_API_KEY", "")
     gemini_model = "gemini-3.8-flash"
-    openai_base_url = saved_config.get("OPENAI_BASE_URL", "https://api.reformboss.com/v1")
+    openai_base_url = saved_config.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
     openai_api_key = saved_config.get("OPENAI_API_KEY", "")
     openai_model = saved_config.get("OPENAI_MODEL", "gpt-4o-mini")
     
@@ -638,7 +638,7 @@ with st.sidebar:
             options=["gemini", "openai_compatible"],
             format_func=lambda x: {
                 "gemini": "✨ Google Gemini (Официальный API)",
-                "openai_compatible": "🌐 Свой API (OpenAI-совместимый: ReformBoss, Proxy, Local)"
+                "openai_compatible": "🌐 Свой API (Совместимый с OpenAI)"
             }[x],
             index=0 if saved_config.get("AI_PROVIDER", "gemini") == "gemini" else 1
         )
@@ -669,8 +669,8 @@ with st.sidebar:
         else:
             openai_base_url = st.text_input(
                 "Base URL API:",
-                value=saved_config.get("OPENAI_BASE_URL", "https://api.reformboss.com/v1"),
-                help="Базовый URL провайдера. Например: https://api.reformboss.com/v1, https://api.openai.com/v1, https://openrouter.ai/api/v1"
+                value=saved_config.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+                help="Базовый URL провайдера. Например: https://api.openai.com/v1, https://openrouter.ai/api/v1"
             )
             openai_api_key = st.text_input(
                 "API Key провайдера:",
@@ -836,7 +836,7 @@ if uploaded_file is not None:
         # AI enhancement (Google Gemini or OpenAI-compatible)
         ai_applied = False
         active_model_name = gemini_model if ai_provider == "gemini" else openai_model
-        ai_provider_name = "Google Gemini" if ai_provider == "gemini" else "OpenAI API"
+        ai_provider_name = "Google Gemini" if ai_provider == "gemini" else "Совместимый с OpenAI"
         ai_cache_key = f"ai_{file_id}_{ai_provider}_{active_model_name}_{remove_fillers}"
         
         if use_ai:
@@ -897,7 +897,7 @@ if uploaded_file is not None:
                 
         st.subheader("Результаты транскрибации")
         
-        tab_names = ["💬 Предложения и сегменты", "⏱️ Пословные таймкоды", "🎬 Субтитры (SRT / VTT)"]
+        tab_names = ["💬 Распечатка текста и сегменты", "⏱️ Пословные таймкоды", "🎬 Субтитры (SRT / VTT)"]
         if ai_applied:
             tab_names.append("🔄 Сравнение: Исходный vs AI")
             
@@ -910,6 +910,23 @@ if uploaded_file is not None:
         # Process segments and words
         transcript_lines = []
         with tab_segments:
+            # Full text box for quick reading and copying
+            full_clean_text = " ".join([
+                process_text(s.get("text", ""), remove_punctuation, case_mode)
+                for s in processed_segments
+                if s.get("text", "").strip()
+            ])
+            
+            st.markdown("#### 📄 Распечатка полного текста")
+            st.text_area(
+                "Полный текст транскрибации (единым текстом):",
+                value=full_clean_text,
+                height=180,
+                help="Вы можете выделить и скопировать весь текст целиком."
+            )
+            
+            st.markdown("---")
+            st.markdown("#### ⏱️ Временные фрагменты (сегменты)")
             for idx, segment in enumerate(processed_segments, 1):
                 start = segment.get("start", 0.0)
                 end = segment.get("end", 0.0)
