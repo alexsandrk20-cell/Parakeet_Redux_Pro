@@ -1,3 +1,4 @@
 streamlit
 moondream
 numpy
+google-genai

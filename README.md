@@ -1,96 +1,138 @@
-<div align="center">
-  <a href="https://youtu.be/nwx4ph8iELA">
-    <img src="https://img.youtube.com/vi/nwx4ph8iELA/0.jpg" alt="Parakeet Redux: Nvidia's 178MB AI Beats Whisper Running 113× Faster on CPU!">
-  </a>
-  <h3>📺 <a href="https://youtu.be/nwx4ph8iELA">Watch the full video on YouTube</a></h3>
-</div>
+# ⚡ Parakeet Redux Pro: Local Transcriber, Subtitles & AI Editor
 
-# ⚡ Parakeet Redux Local Transcriber
-
-[![Python 3.9+](https://img.shields.io/badge/Python-3.9+-3776AB.svg?style=flat&logo=python&logoColor=white)](https://www.python.org/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.30+-FF4B4B.svg?style=flat&logo=streamlit&logoColor=white)](https://streamlit.io/)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10+-3776AB.svg?style=flat&logo=python&logoColor=white)](https://www.python.org/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.40+-FF4B4B.svg?style=flat&logo=streamlit&logoColor=white)](https://streamlit.io/)
 [![Moondream AI](https://img.shields.io/badge/Moondream-Parakeet--Redux-7C3AED.svg?style=flat)](https://huggingface.co/moondream/parakeet-redux)
+[![Google Gemini](https://img.shields.io/badge/Gemini_API-3.8_Flash-4285F4.svg?style=flat&logo=google)](https://aistudio.google.com/)
 [![License: CC-BY-4.0](https://img.shields.io/badge/License-CC--BY--4.0-10B981.svg?style=flat)](https://creativecommons.org/licenses/by/4.0/)
 
-A lightweight, private speech-to-text application powered by `moondream/parakeet-redux`. Automatically converts uploaded video or audio files into timestamped text transcripts locally on your computer at 113× real-time speed.
+Сверхбыстрое локальное распознавание речи на базе **`moondream/parakeet-redux`** (1.58-bit Ternary AI) с поддержкой **GPU CUDA**, **пословных таймкодов**, **караоке-субтитров для видеомонтажа** и умной постобработкой через **Google Gemini AI**.
 
-| Step 1: Input | Step 2: AI Action | Step 3: Result |
-| :--- | :--- | :--- |
-| **Media Upload**<br>Upload any video (`.mp4`, `.mov`) or audio (`.mp3`, `.wav`) file. | **1.58-Bit AI Processing**<br>System FFmpeg standardizes audio; Parakeet Redux transcribes instantly on CPU. | **Timestamped Transcript**<br>View sentence segments with time codes and download `.md` output. |
+> [!NOTE]
+> **Благодарность автору исходного проекта:**
+> Проект основан на оригинальном репозитории [47thtechcorner/RayCodes_Parakeet_Redux](https://github.com/47thtechcorner/RayCodes_Parakeet_Redux) от [RayCodes](https://youtu.com/nwx4ph8iELA).
 
 ---
 
-## 🛠️ System Requirements & Prerequisites
+## 🌟 Новые возможности и улучшения
 
-Before running the application, make sure your computer has Python 3.9 or higher and system-level **FFmpeg** installed to extract audio from video containers.
+1. ⏱️ **Пословные временные метки (Word-Level Timestamps):**
+   * Получение точного времени начала и окончания каждого слова с точностью до миллисекунд.
+   * Интерактивная таблица в веб-интерфейсе с поиском и сортировкой по всем словам записи.
 
-### Installing FFmpeg
-* **Windows (PowerShell Admin / Chocolatey or Winget):**
+2. 🎬 **Экспорт субтитров для видеомонтажа:**
+   * **Стандартные субтитры (`.srt`, `.vtt`)** — по предложениям для DaVinci Resolve, Adobe Premiere Pro, Final Cut.
+   * **Пословные караоке-субтитры (`_words.srt`)** — каждое слово отдельным блоком с точным таймингом (для трендовой анимации слов в Reels, Shorts, TikTok и CapCut).
+   * **Полный JSON (`.json`)** и структурированный отчет (`.md`).
+
+3. ✂️ **Очистка от знаков препинания:**
+   * Опция удаления точек, запятых, тире и кавычек для создания чистого динамического видеоряда.
+
+4. 🔠 **Управление регистром (UPPERCASE):**
+   * Перевод всех слов в **ВЕРХНИЙ РЕГИСТР (ЗАГЛАВНЫЕ)**, строчные или с заглавной буквы.
+
+5. 🚫 **Удаление слов-паразитов (Filler Words Filter):**
+   * Встроенный словарь русских и английских звуков заминки (*ээ*, *эм*, *мм*) и слов-паразитов (*ну*, *короче*, *типа*, *как бы*, *в общем*, *так сказать* и др.).
+   * Возможность редактирования списка слов-паразитов прямо в веб-интерфейсе.
+
+6. 🤖 **Интеграция с Google Gemini AI (`gemini-3.8-flash`):**
+   * Автоматическое исправление смысловых и фонетических ошибок ASR, профессиональных терминов.
+   * Контекстное удаление оговорок и заминок с сохранением временных меток.
+   * Вкладка интерактивного сравнения «До и После».
+   * Ключ API сохраняется локально в файл `.env` и никогда не утекает в репозиторий.
+
+7. ⚡ **Аппаратное ускорение на GPU (NVIDIA CUDA):**
+   * Оптимизированный инференс (транскрибация 30 секунд аудио занимает всего ~1.4 сек на RTX 3060).
+
+8. 🚀 **Удобный запуск в один клик:**
+   * Скрипт `run.bat` для быстрого запуска под Windows.
+
+---
+
+## 🛠️ Системные требования
+
+* **ОС:** Windows 10/11, Linux или macOS.
+* **Python:** 3.10 – 3.12 (рекомендуется Python 3.12).
+* **FFmpeg:** Установлен в системе и доступен в PATH.
+  * Установка на Windows через winget:
+    ```powershell
+    winget install --id FFmpeg-FFmpeg.FFmpeg -e
+    ```
+* **Видеокарта (опционально):** NVIDIA GPU с поддержкой CUDA для максимальной скорости (также поддерживается запуск на CPU).
+
+---
+
+## 🚀 Установка и настройка
+
+1. **Клонируйте репозиторий:**
+   ```bash
+   git clone https://github.com/alexsandrk20-cell/Parakeet_Redux_Pro.git
+   cd Parakeet_Redux_Pro
+   ```
+
+2. **Создайте виртуальное окружение:**
+   ```bash
+   # С использованием стандартного venv:
+   python -m venv .venv
+
+   # Активация на Windows:
+   .venv\Scripts\activate
+
+   # Активация на Linux/macOS:
+   source .venv/bin/activate
+   ```
+
+3. **Установите зависимости:**
+   * Для систем с **NVIDIA GPU (CUDA 12.4+)**:
+     ```bash
+     pip install torch --index-url https://download.pytorch.org/whl/cu124
+     pip install -r requirements.txt
+     ```
+   * Для запуска только на **CPU**:
+     ```bash
+     pip install -r requirements.txt
+     ```
+
+4. **Настройка Gemini API (опционально):**
+   * Скопируйте `.env.example` в `.env`:
+     ```bash
+     copy .env.example .env
+     ```
+   * Вставьте ваш бесплатный ключ из [Google AI Studio](https://aistudio.google.com/app/apikey):
+     ```env
+     GEMINI_API_KEY=ваш_ключ_здесь
+     ```
+   *(Также ключ можно ввести прямо в боковом меню приложения).*
+
+---
+
+## 💻 Запуск приложения
+
+* **Windows:** Просто дважды кликните по файлу **`run.bat`** (или создайте ярлык на рабочем столе).
+* **Через терминал:**
   ```powershell
-  winget install --id FFmpeg-FFmpeg.FFmpeg -e
-  ```
-* **Ubuntu / Debian:**
-  ```bash
-  sudo apt update && sudo apt install ffmpeg
-  ```
-* **macOS:**
-  ```bash
-  brew install ffmpeg
+  streamlit run app.py
   ```
 
+Интерфейс откроется в браузере по адресу: `http://localhost:8501`.
+
 ---
 
-## 🚀 Quick Setup & Installation
+## 📁 Структура проекта
 
-Run the following single PowerShell command to install all required dependencies:
-
-```powershell
-pip install streamlit moondream numpy
+```
+├── app.py              # Основное приложение Streamlit с полной логикой ASR и Gemini
+├── run.bat             # Скрипт быстрого запуска под Windows
+├── requirements.txt    # Зависимости проекта
+├── .env.example        # Пример конфигурационного файла для API-ключа
+├── .gitignore          # Исключение секретов, виртуальных окружений и медиа
+└── README.md           # Документация проекта
 ```
 
 ---
 
-## 💻 Running the Application
+## 📄 Лицензия и атрибуция
 
-Launch the Streamlit web interface with the following command:
-
-```powershell
-streamlit run app.py
-```
-
-The web interface will open automatically in your browser at `http://localhost:8501`. On the first upload, the application downloads the lightweight 178 MB model weights directly into your local cache.
-
----
-
-## 📁 Repository Structure
-
-```
-├── app.py
-├── requirements.txt
-└── README.md
-```
-
----
-
-## 🌟 5 Practical Real-World Use Cases
-
-1. 🎙️ **Local Meeting & Podcast Transcription:** Convert multi-hour meeting recordings into text locally with zero cloud API costs or privacy leaks.
-2. 🔍 **Voice Note Search Vault:** Turn scattered voice memos into searchable text files for personal knowledge management.
-3. 📚 **Lecture Chapter Indexing:** Automatically split long university lectures into readable notes using built-in pause detection.
-4. 🌐 **Global Accent & Language Testing:** Test transcription accuracy across 25 supported global languages natively.
-5. 💻 **Hands-Free Developer Voice Notes:** Speak technical thoughts or bug descriptions directly into local structured markdown logs.
-
----
-
-## 🔮 5 Future Planned Features
-
-1. ⏱️ **Word-Level Precision Timestamps:** Highlight exact spoken words in real time as media plays back.
-2. 🏷️ **Speaker Identification (Diarization):** Automatically label different speakers in multi-person meetings.
-3. 📊 **Interactive Transcript Search & Filter:** Instantly filter transcript lines by keyword or timestamp range.
-4. 📝 **Automated AI Meeting Summarization:** Feed generated transcripts into local LLMs to produce executive summaries.
-5. 📂 **Batch Folder Processing:** Drag and drop an entire directory of audio files for background processing.
-
----
-
-## 🏷️ Keywords & SEO
-`moondream` `parakeet-redux` `1.58-bit-ai` `ternary-quantization` `local-speech-to-text` `ffmpeg-audio-extraction` `streamlit-transcriber` `cpu-speech-recognition` `faster-than-whisper`
+Проект распространяется под лицензией [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/).  
+Оригинальная разработка: [47thtechcorner/RayCodes_Parakeet_Redux](https://github.com/47thtechcorner/RayCodes_Parakeet_Redux).  
+Модель ASR: [Moondream Parakeet-Redux](https://huggingface.co/moondream/parakeet-redux).
