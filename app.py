@@ -27,6 +27,7 @@ def load_env_config() -> dict[str, str]:
     config = {
         "AI_PROVIDER": os.environ.get("AI_PROVIDER", "gemini"),
         "GEMINI_API_KEY": os.environ.get("GEMINI_API_KEY", ""),
+        "GEMINI_MODEL": os.environ.get("GEMINI_MODEL", "gemini-3.5-flash"),
         "OPENAI_BASE_URL": os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
         "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY", ""),
         "OPENAI_MODEL": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
@@ -63,13 +64,17 @@ def test_gemini_api_connection(api_key: str, model_name: str) -> tuple[bool, str
     start_t = time.time()
     try:
         client = genai.Client(api_key=api_key.strip())
+        target_model = model_name.strip() if model_name.strip() else "gemini-3.5-flash"
         client.models.generate_content(
-            model=model_name.strip() if model_name.strip() else "gemini-3.8-flash",
+            model=target_model,
             contents="ping"
         )
         latency = time.time() - start_t
-        return True, f"Успешное подключение к Google Gemini! Время отклика: {latency:.2f}с."
+        return True, f"Успешное подключение к Google Gemini ({target_model})! Время отклика: {latency:.2f}с."
     except Exception as e:
+        err_msg = str(e)
+        if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
+            return False, f"Суточная квота модели {model_name} исчерпана (429 RESOURCE_EXHAUSTED). Выберите другую модель (например, gemini-3.5-flash) или используйте свой API."
         return False, f"Ошибка подключения к Gemini: {e}"
 
 def test_openai_api_connection(base_url: str, api_key: str, model_name: str) -> tuple[bool, str]:
@@ -287,8 +292,8 @@ def align_words_to_timestamps(original_words: list[dict], corrected_text: str, s
 def enhance_transcript_with_gemini(
     segments: list[dict],
     api_key: str,
-    model_name: str = "gemini-3.8-flash",
-    batch_size: int = 25,
+    model_name: str = "gemini-3.5-flash",
+    batch_size: int = 50,
     progress_bar = None,
     status_text = None
 ) -> list[dict]:
@@ -328,14 +333,36 @@ def enhance_transcript_with_gemini(
         if status_text is not None:
             status_text.text(f"✨ Gemini ({model_name}): обработка сегментов {start_idx + 1}–{end_idx} из {total_segments}...")
             
-        response = client.models.generate_content(
-            model=model_name,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                response_mime_type="application/json"
-            )
-        )
+        models_to_try = [model_name]
+        for fallback_candidate in ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-flash-lite-latest"]:
+            if fallback_candidate not in models_to_try:
+                models_to_try.append(fallback_candidate)
+                
+        response = None
+        last_error = None
+        for try_m in models_to_try:
+            try:
+                response = client.models.generate_content(
+                    model=try_m,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        response_mime_type="application/json"
+                    )
+                )
+                if try_m != model_name and status_text is not None:
+                    status_text.text(f"✨ Квота {model_name} исчерпана. Переключено на резервную модель {try_m} ✅")
+                break
+            except Exception as e:
+                last_error = e
+                err_str = str(e)
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "503" in err_str or "404" in err_str:
+                    continue
+                else:
+                    raise e
+                    
+        if response is None:
+            raise last_error
         
         raw_text = response.text.strip()
         if raw_text.startswith("```json"):
@@ -627,7 +654,7 @@ with st.sidebar:
     
     ai_provider = saved_config.get("AI_PROVIDER", "gemini")
     gemini_api_key = saved_config.get("GEMINI_API_KEY", "")
-    gemini_model = "gemini-3.8-flash"
+    gemini_model = saved_config.get("GEMINI_MODEL", "gemini-3.5-flash")
     openai_base_url = saved_config.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
     openai_api_key = saved_config.get("OPENAI_API_KEY", "")
     openai_model = saved_config.get("OPENAI_MODEL", "gpt-4o-mini")
@@ -650,11 +677,13 @@ with st.sidebar:
                 type="password",
                 help="Получите бесплатный ключ: https://aistudio.google.com/app/apikey"
             )
+            gemini_options = ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-flash-lite-latest"]
+            current_model_idx = gemini_options.index(gemini_model) if gemini_model in gemini_options else 0
             gemini_model = st.selectbox(
                 "Модель Gemini:",
-                options=["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-pro"],
-                index=0,
-                help="gemini-3.8-flash — актуальная сверхбыстрая и качественная модель"
+                options=gemini_options,
+                index=current_model_idx,
+                help="gemini-3.5-flash — стабильная и быстрая модель с отдельной квотой. У gemini-3.8-flash лимит 20 запросов в день на Free Tier."
             )
             if st.button("🔍 Проверить подключение Gemini", use_container_width=True):
                 with st.spinner("Проверка подключения к Google Gemini..."):
@@ -664,8 +693,14 @@ with st.sidebar:
                     else:
                         st.error(f"❌ {msg}")
             
-            if gemini_api_key != saved_config.get("GEMINI_API_KEY") or saved_config.get("AI_PROVIDER") != "gemini":
-                save_env_config({"GEMINI_API_KEY": gemini_api_key, "AI_PROVIDER": "gemini"})
+            if (gemini_api_key != saved_config.get("GEMINI_API_KEY") 
+                or gemini_model != saved_config.get("GEMINI_MODEL") 
+                or saved_config.get("AI_PROVIDER") != "gemini"):
+                save_env_config({
+                    "GEMINI_API_KEY": gemini_api_key,
+                    "GEMINI_MODEL": gemini_model,
+                    "AI_PROVIDER": "gemini"
+                })
         else:
             openai_base_url = st.text_input(
                 "Base URL API:",
@@ -856,7 +891,7 @@ if uploaded_file is not None:
                                 processed_segments,
                                 api_key=gemini_api_key.strip(),
                                 model_name=gemini_model,
-                                batch_size=25,
+                                batch_size=50,
                                 progress_bar=progress_bar,
                                 status_text=status_text
                             )
@@ -866,7 +901,7 @@ if uploaded_file is not None:
                                 base_url=openai_base_url.strip(),
                                 api_key=openai_api_key.strip(),
                                 model_name=openai_model.strip(),
-                                batch_size=25,
+                                batch_size=50,
                                 progress_bar=progress_bar,
                                 status_text=status_text
                             )
@@ -874,7 +909,17 @@ if uploaded_file is not None:
                         processed_segments = enhanced
                         ai_applied = True
                     except Exception as ge:
-                        st.error(f"Ошибка AI API ({ge}). Использован локальный результат.")
+                        err_text = str(ge)
+                        if "429" in err_text or "RESOURCE_EXHAUSTED" in err_text:
+                            st.warning(
+                                "⚠️ **Исчерпан суточный лимит бесплатных запросов Google Gemini (Free Tier: 20 запросов в день на модель).**\n\n"
+                                "👉 **Как продолжить:**\n"
+                                "1. В боковом меню выберите модель **`gemini-3.5-flash`** или **`gemini-3.5-flash-lite`** (у них отдельная свежая квота).\n"
+                                "2. Либо переключитесь на **«🌐 Свой API (Совместимый с OpenAI)»**.\n"
+                                "3. Локальная транскрибация Parakeet Redux полностью сохранена и доступна ниже."
+                            )
+                        else:
+                            st.error(f"Ошибка AI API ({ge}). Использован локальный результат.")
                     finally:
                         progress_bar.empty()
                         status_text.empty()
