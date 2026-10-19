@@ -22,29 +22,88 @@ PUNCTUATION_CHARS = set(string.punctuation.replace("-", "") + "«»—–…„�
 
 ENV_FILE = os.path.join(os.path.dirname(__file__), ".env")
 
-def load_saved_api_key() -> str:
-    """Loads saved Gemini API Key from environment or .env file."""
-    if os.environ.get("GEMINI_API_KEY"):
-        return os.environ["GEMINI_API_KEY"]
+def load_env_config() -> dict[str, str]:
+    """Loads key-value configuration from local .env file and environment variables."""
+    config = {
+        "AI_PROVIDER": os.environ.get("AI_PROVIDER", "gemini"),
+        "GEMINI_API_KEY": os.environ.get("GEMINI_API_KEY", ""),
+        "OPENAI_BASE_URL": os.environ.get("OPENAI_BASE_URL", "https://api.reformboss.com/v1"),
+        "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY", ""),
+        "OPENAI_MODEL": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+    }
     if os.path.exists(ENV_FILE):
         try:
             with open(ENV_FILE, "r", encoding="utf-8") as f:
                 for line in f:
-                    if line.startswith("GEMINI_API_KEY="):
-                        return line.strip().split("=", 1)[1].strip("\"' ")
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        config[k.strip()] = v.strip("\"' ")
         except Exception:
             pass
-    return ""
+    return config
 
-def save_api_key(key: str) -> None:
-    """Saves Gemini API Key to local .env file."""
-    if not key:
-        return
+def save_env_config(updates: dict[str, str]) -> None:
+    """Updates key-value configuration in local .env file preserving existing values."""
+    current = load_env_config()
+    current.update({k: v for k, v in updates.items() if v is not None})
     try:
         with open(ENV_FILE, "w", encoding="utf-8") as f:
-            f.write(f"GEMINI_API_KEY={key.strip()}\n")
+            for k, v in current.items():
+                f.write(f"{k}={v}\n")
     except Exception:
         pass
+
+def test_gemini_api_connection(api_key: str, model_name: str) -> tuple[bool, str]:
+    """Tests connection to Google Gemini API."""
+    import time
+    from google import genai
+    if not api_key.strip():
+        return False, "Укажите Gemini API Key"
+    start_t = time.time()
+    try:
+        client = genai.Client(api_key=api_key.strip())
+        client.models.generate_content(
+            model=model_name.strip() if model_name.strip() else "gemini-3.8-flash",
+            contents="ping"
+        )
+        latency = time.time() - start_t
+        return True, f"Успешное подключение к Google Gemini! Время отклика: {latency:.2f}с."
+    except Exception as e:
+        return False, f"Ошибка подключения к Gemini: {e}"
+
+def test_openai_api_connection(base_url: str, api_key: str, model_name: str) -> tuple[bool, str]:
+    """Tests connection to an OpenAI-compatible API endpoint (e.g. ReformBoss, OpenRouter, vLLM)."""
+    import time
+    from openai import OpenAI
+    
+    clean_url = base_url.strip().rstrip("/")
+    if not clean_url:
+        return False, "Укажите Base URL провайдера (например, https://api.reformboss.com/v1)"
+    if not api_key.strip():
+        return False, "Укажите API Key"
+        
+    start_t = time.time()
+    target_model = model_name.strip() if model_name.strip() else "gpt-4o-mini"
+    try:
+        client = OpenAI(base_url=clean_url, api_key=api_key.strip(), timeout=12.0)
+        res = client.chat.completions.create(
+            model=target_model,
+            messages=[{"role": "user", "content": "ping"}],
+            max_tokens=2
+        )
+        latency = time.time() - start_t
+        reply = res.choices[0].message.content if res.choices else "OK"
+        return True, f"Подключение к {clean_url} успешно! Модель '{target_model}' ответила за {latency:.2f}с: '{reply}'"
+    except Exception as e:
+        try:
+            client = OpenAI(base_url=clean_url, api_key=api_key.strip(), timeout=8.0)
+            models = client.models.list()
+            latency = time.time() - start_t
+            model_ids = [m.id for m in models.data[:5]] if hasattr(models, "data") else []
+            return True, f"Подключение к {clean_url} успешно (время: {latency:.2f}с). Доступные модели: {', '.join(model_ids)}"
+        except Exception:
+            return False, f"Ошибка подключения: {e}"
 
 DEFAULT_FILLER_WORDS = [
     # Русские звуки заминки и междометия
@@ -323,6 +382,126 @@ def enhance_transcript_with_gemini(
         
     return enhanced_segments
 
+def enhance_transcript_with_openai_compatible(
+    segments: list[dict],
+    base_url: str,
+    api_key: str,
+    model_name: str = "gpt-4o-mini",
+    batch_size: int = 25,
+    progress_bar = None,
+    status_text = None
+) -> list[dict]:
+    """Uses an OpenAI-compatible API (ReformBoss, OpenRouter, vLLM, DeepSeek, Local LLM)
+    to fix transcription errors, remove speech fillers, and polish words while preserving and aligning timestamps."""
+    from openai import OpenAI
+    
+    clean_base_url = base_url.strip().rstrip("/")
+    client = OpenAI(base_url=clean_base_url, api_key=api_key.strip(), timeout=90.0)
+    
+    system_instruction = (
+        "Ты — профессиональный редактор субтитров для видеомонтажа. "
+        "Твоя цель — сделать так, чтобы субтитры точно соответствовали звучащей речи, но были грамотными, чистыми и без мусора:\n"
+        "1. Исправь ошибки распознавания речи (ASR): фонетические искажения, опечатки, неправильно услышанные технические термины и названия "
+        "(Claude, ChatGPT, Codex, Kimi, DaVinci, Premiere, нейросеть, localhost, Git и т.д.), падежи и окончания.\n"
+        "2. Полностью удали слова-паразиты, звуки заминки речи (э-э, мм, ну, типа, короче, как бы, в общем, так сказать и т.д.), заикания и случайные повторы слов.\n"
+        "3. ВАЖНО: НЕ ПЕРЕСКАЗЫВАЙ и НЕ ПЕРЕФРАЗИРУЙ речь! Сохраняй авторские формулировки и структуру предложений, чтобы зритель слышал ровно то, что написано в субтитрах.\n"
+        "4. Сохрани количество и порядок переданных сегментов. Верни строго валидный JSON-массив объектов: [{\"id\": 0, \"text\": \"...\"}]. "
+        "Если фрагмент состоял исключительно из заминки или паразитов, верни text: \"\"."
+    )
+    
+    all_corrections = {}
+    total_segments = len(segments)
+    
+    for start_idx in range(0, total_segments, batch_size):
+        end_idx = min(start_idx + batch_size, total_segments)
+        batch = segments[start_idx:end_idx]
+        
+        items_to_send = [{"id": start_idx + j, "text": seg.get("text", "")} for j, seg in enumerate(batch)]
+        prompt = (
+            f"Вот сегменты речи #{start_idx + 1}–#{end_idx} (всего {len(items_to_send)}) в формате JSON:\n"
+            f"{json.dumps(items_to_send, ensure_ascii=False, indent=2)}\n\n"
+            "Исправь ошибки и удали слова-паразиты. Сохраняй авторские слова, не перефразируй! "
+            "Верни строго валидный JSON-массив объектов с полями id и text."
+        )
+        
+        if status_text is not None:
+            status_text.text(f"✨ AI ({model_name}): обработка сегментов {start_idx + 1}–{end_idx} из {total_segments}...")
+            
+        raw_text = ""
+        try:
+            resp = client.chat.completions.create(
+                model=model_name,
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": prompt}
+                ],
+                response_format={"type": "json_object"}
+            )
+            raw_text = resp.choices[0].message.content or ""
+        except Exception:
+            resp = client.chat.completions.create(
+                model=model_name,
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            raw_text = resp.choices[0].message.content or ""
+            
+        raw_text = raw_text.strip()
+        if raw_text.startswith("```json"):
+            raw_text = raw_text[7:]
+        elif raw_text.startswith("```"):
+            raw_text = raw_text[3:]
+        if raw_text.endswith("```"):
+            raw_text = raw_text[:-3]
+            
+        try:
+            parsed = json.loads(raw_text.strip())
+            if isinstance(parsed, dict):
+                for v in parsed.values():
+                    if isinstance(v, list):
+                        parsed = v
+                        break
+                else:
+                    parsed = [parsed]
+            for item in parsed:
+                if isinstance(item, dict) and "id" in item:
+                    try:
+                        all_corrections[int(item["id"])] = item.get("text", "").strip()
+                    except (ValueError, TypeError):
+                        pass
+        except Exception:
+            pass
+                    
+        if progress_bar is not None:
+            progress_bar.progress(min(1.0, end_idx / max(1, total_segments)))
+            
+    enhanced_segments = []
+    for i, seg in enumerate(segments):
+        seg_copy = dict(seg)
+        if i in all_corrections:
+            corrected_text = all_corrections[i]
+            if not corrected_text:
+                continue
+            seg_copy["original_text"] = seg.get("text", "")
+            seg_copy["text"] = corrected_text
+            
+            if "words" in seg and seg["words"]:
+                aligned_words = align_words_to_timestamps(
+                    seg["words"],
+                    corrected_text,
+                    seg.get("start", 0.0),
+                    seg.get("end", 0.0)
+                )
+                seg_copy["words"] = aligned_words
+                if aligned_words:
+                    seg_copy["start"] = aligned_words[0]["start"]
+                    seg_copy["end"] = aligned_words[-1]["end"]
+        enhanced_segments.append(seg_copy)
+        
+    return enhanced_segments
+
 def format_time_display(seconds: float) -> str:
     """Formats seconds into MM:SS format for UI display."""
     m = int(seconds // 60)
@@ -425,7 +604,7 @@ def load_speech_model():
 st.title("⚡ Local Speech Transcriber & Subtitle Generator")
 st.markdown("Powered by `moondream/parakeet-redux` (1.58-Bit Ternary AI) + **Google Gemini AI** post-processing.")
 
-saved_key = load_saved_api_key()
+saved_config = load_env_config()
 
 # Settings in sidebar
 with st.sidebar:
@@ -438,32 +617,91 @@ with st.sidebar:
     )
     
     st.markdown("---")
-    st.subheader("🤖 Google Gemini AI (Умная правка)")
-    use_gemini = st.checkbox(
-        "Исправлять ошибки и паразиты через Gemini",
-        value=bool(saved_key),
-        help="Использует нейросеть Gemini для контекстного исправления ошибок ASR, терминов, опечаток и удаления слов-паразитов"
+    st.subheader("🤖 Умная AI-правка (Gemini / Свой API)")
+    has_any_key = bool(saved_config.get("GEMINI_API_KEY") or saved_config.get("OPENAI_API_KEY"))
+    use_ai = st.checkbox(
+        "Исправлять ошибки и паразиты через нейросеть",
+        value=has_any_key,
+        help="Использует нейросеть (Gemini или OpenAI-совместимый API) для контекстного исправления ошибок ASR, терминов, опечаток и удаления слов-паразитов"
     )
     
-    gemini_api_key = ""
+    ai_provider = saved_config.get("AI_PROVIDER", "gemini")
+    gemini_api_key = saved_config.get("GEMINI_API_KEY", "")
     gemini_model = "gemini-3.8-flash"
-    if use_gemini:
-        gemini_api_key = st.text_input(
-            "Gemini API Key:",
-            value=saved_key,
-            type="password",
-            help="Получите бесплатный ключ: https://aistudio.google.com/app/apikey"
+    openai_base_url = saved_config.get("OPENAI_BASE_URL", "https://api.reformboss.com/v1")
+    openai_api_key = saved_config.get("OPENAI_API_KEY", "")
+    openai_model = saved_config.get("OPENAI_MODEL", "gpt-4o-mini")
+    
+    if use_ai:
+        ai_provider = st.radio(
+            "Провайдер AI:",
+            options=["gemini", "openai_compatible"],
+            format_func=lambda x: {
+                "gemini": "✨ Google Gemini (Официальный API)",
+                "openai_compatible": "🌐 Свой API (OpenAI-совместимый: ReformBoss, Proxy, Local)"
+            }[x],
+            index=0 if saved_config.get("AI_PROVIDER", "gemini") == "gemini" else 1
         )
-        if gemini_api_key and gemini_api_key != saved_key:
-            save_api_key(gemini_api_key)
-            st.success("API-ключ сохранён!")
+        
+        if ai_provider == "gemini":
+            gemini_api_key = st.text_input(
+                "Gemini API Key:",
+                value=saved_config.get("GEMINI_API_KEY", ""),
+                type="password",
+                help="Получите бесплатный ключ: https://aistudio.google.com/app/apikey"
+            )
+            gemini_model = st.selectbox(
+                "Модель Gemini:",
+                options=["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-pro"],
+                index=0,
+                help="gemini-3.8-flash — актуальная сверхбыстрая и качественная модель"
+            )
+            if st.button("🔍 Проверить подключение Gemini", use_container_width=True):
+                with st.spinner("Проверка подключения к Google Gemini..."):
+                    ok, msg = test_gemini_api_connection(gemini_api_key, gemini_model)
+                    if ok:
+                        st.success(f"✅ {msg}")
+                    else:
+                        st.error(f"❌ {msg}")
             
-        gemini_model = st.selectbox(
-            "Модель Gemini:",
-            options=["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-pro"],
-            index=0,
-            help="gemini-3.8-flash — актуальная сверхбыстрая и качественная модель"
-        )
+            if gemini_api_key != saved_config.get("GEMINI_API_KEY") or saved_config.get("AI_PROVIDER") != "gemini":
+                save_env_config({"GEMINI_API_KEY": gemini_api_key, "AI_PROVIDER": "gemini"})
+        else:
+            openai_base_url = st.text_input(
+                "Base URL API:",
+                value=saved_config.get("OPENAI_BASE_URL", "https://api.reformboss.com/v1"),
+                help="Базовый URL провайдера. Например: https://api.reformboss.com/v1, https://api.openai.com/v1, https://openrouter.ai/api/v1"
+            )
+            openai_api_key = st.text_input(
+                "API Key провайдера:",
+                value=saved_config.get("OPENAI_API_KEY", ""),
+                type="password",
+                help="Ваш ключ доступа к выбранному API"
+            )
+            openai_model = st.text_input(
+                "Название модели:",
+                value=saved_config.get("OPENAI_MODEL", "gpt-4o-mini"),
+                help="Например: gpt-4o-mini, gpt-4o, claude-3-5-sonnet, deepseek-chat"
+            )
+            if st.button("🔍 Проверить подключение к API", use_container_width=True):
+                with st.spinner(f"Проверка подключения к {openai_base_url}..."):
+                    ok, msg = test_openai_api_connection(openai_base_url, openai_api_key, openai_model)
+                    if ok:
+                        st.success(f"✅ {msg}")
+                    else:
+                        st.error(f"❌ {msg}")
+                        
+            updates = {}
+            if openai_base_url != saved_config.get("OPENAI_BASE_URL"):
+                updates["OPENAI_BASE_URL"] = openai_base_url
+            if openai_api_key != saved_config.get("OPENAI_API_KEY"):
+                updates["OPENAI_API_KEY"] = openai_api_key
+            if openai_model != saved_config.get("OPENAI_MODEL"):
+                updates["OPENAI_MODEL"] = openai_model
+            if saved_config.get("AI_PROVIDER") != "openai_compatible":
+                updates["AI_PROVIDER"] = "openai_compatible"
+            if updates:
+                save_env_config(updates)
     
     st.markdown("---")
     st.subheader("🚫 Локальный фильтр паразитов")
@@ -595,40 +833,55 @@ if uploaded_file is not None:
                 seg_dict["text"] = clean_seg_text
             processed_segments.append(seg_dict)
         
-        # Optional Gemini AI enhancement
-        gemini_applied = False
-        gemini_cache_key = f"gemini_{file_id}_{gemini_model}_{remove_fillers}"
-        if use_gemini:
-            if not gemini_api_key.strip():
-                st.warning("⚠️ Для исправления через Gemini укажите Gemini API Key в боковом меню или добавьте его в файл .env")
+        # AI enhancement (Google Gemini or OpenAI-compatible)
+        ai_applied = False
+        active_model_name = gemini_model if ai_provider == "gemini" else openai_model
+        ai_provider_name = "Google Gemini" if ai_provider == "gemini" else "OpenAI API"
+        ai_cache_key = f"ai_{file_id}_{ai_provider}_{active_model_name}_{remove_fillers}"
+        
+        if use_ai:
+            active_key = gemini_api_key.strip() if ai_provider == "gemini" else openai_api_key.strip()
+            if not active_key:
+                st.warning(f"⚠️ Для исправления через AI укажите API Key ({ai_provider_name}) в боковом меню или добавьте его в файл .env")
             else:
-                if gemini_cache_key in st.session_state:
-                    processed_segments = st.session_state[gemini_cache_key]
-                    gemini_applied = True
+                if ai_cache_key in st.session_state:
+                    processed_segments = st.session_state[ai_cache_key]
+                    ai_applied = True
                 else:
-                    progress_bar = st.progress(0, text="✨ Подключение к Gemini API...")
+                    progress_bar = st.progress(0, text=f"✨ Подключение к {ai_provider_name} ({active_model_name})...")
                     status_text = st.empty()
                     try:
-                        enhanced = enhance_transcript_with_gemini(
-                            processed_segments,
-                            api_key=gemini_api_key.strip(),
-                            model_name=gemini_model,
-                            batch_size=25,
-                            progress_bar=progress_bar,
-                            status_text=status_text
-                        )
-                        st.session_state[gemini_cache_key] = enhanced
+                        if ai_provider == "gemini":
+                            enhanced = enhance_transcript_with_gemini(
+                                processed_segments,
+                                api_key=gemini_api_key.strip(),
+                                model_name=gemini_model,
+                                batch_size=25,
+                                progress_bar=progress_bar,
+                                status_text=status_text
+                            )
+                        else:
+                            enhanced = enhance_transcript_with_openai_compatible(
+                                processed_segments,
+                                base_url=openai_base_url.strip(),
+                                api_key=openai_api_key.strip(),
+                                model_name=openai_model.strip(),
+                                batch_size=25,
+                                progress_bar=progress_bar,
+                                status_text=status_text
+                            )
+                        st.session_state[ai_cache_key] = enhanced
                         processed_segments = enhanced
-                        gemini_applied = True
+                        ai_applied = True
                     except Exception as ge:
-                        st.error(f"Ошибка Gemini API ({ge}). Использован локальный результат.")
+                        st.error(f"Ошибка AI API ({ge}). Использован локальный результат.")
                     finally:
                         progress_bar.empty()
                         status_text.empty()
         
-        if use_gemini and gemini_applied:
-            if st.sidebar.button("🔄 Повторить обработку Gemini"):
-                st.session_state.pop(gemini_cache_key, None)
+        if use_ai and ai_applied:
+            if st.sidebar.button("🔄 Повторить обработку AI"):
+                st.session_state.pop(ai_cache_key, None)
                 st.rerun()
         
         # Performance metrics
@@ -636,17 +889,17 @@ if uploaded_file is not None:
         mcol1.metric("Извлечение аудио (FFmpeg)", f"{conversion_time:.2f} с")
         mcol2.metric("Время транскрибации AI", f"{transcription_time:.2f} с")
         mcol3.metric("Общее время работы", f"{total_execution_time:.2f} с")
-        gemini_status_text = "Включена ✅" if gemini_applied else ("Нет ключа ⚠️" if (use_gemini and not gemini_api_key.strip()) else "Выключена")
-        mcol4.metric("Gemini AI правка", gemini_status_text)
+        ai_status_text = f"{ai_provider_name} ({active_model_name}) ✅" if ai_applied else ("Нет ключа ⚠️" if use_ai else "Выключена")
+        mcol4.metric("AI правка", ai_status_text)
         
         if remove_fillers and removed_fillers_count > 0:
-            st.info(f"🚫 Локально удалено слов-паразитов: **{removed_fillers_count}**" + (" + дополнительная правка Gemini" if gemini_applied else ""))
+            st.info(f"🚫 Локально удалено слов-паразитов: **{removed_fillers_count}**" + (" + дополнительная правка AI" if ai_applied else ""))
                 
         st.subheader("Результаты транскрибации")
         
         tab_names = ["💬 Предложения и сегменты", "⏱️ Пословные таймкоды", "🎬 Субтитры (SRT / VTT)"]
-        if gemini_applied:
-            tab_names.append("🔄 Сравнение: Исходный vs Gemini")
+        if ai_applied:
+            tab_names.append("🔄 Сравнение: Исходный vs AI")
             
         tabs = st.tabs(tab_names)
         tab_segments = tabs[0]
@@ -729,17 +982,17 @@ if uploaded_file is not None:
                 else:
                     st.info("Пословные субтитры доступны при выборе режима 'По словам'.")
         
-        # Tab 4: Diff comparison if Gemini applied
+        # Tab 4: Diff comparison if AI applied
         if tab_diff is not None:
             with tab_diff:
-                st.markdown("### Сравнение текста до и после обработки нейросетью Gemini")
+                st.markdown(f"### Сравнение текста до и после обработки нейросетью ({ai_provider_name}: {active_model_name})")
                 diff_rows = []
                 for seg in processed_segments:
                     if "original_text" in seg:
                         diff_rows.append({
                             "Таймкод": f"{format_time_display(seg['start'])} - {format_time_display(seg['end'])}",
                             "Исходный текст (ASR)": seg["original_text"],
-                            "Исправлено Gemini AI": seg["text"]
+                            "Исправлено AI": seg["text"]
                         })
                 if diff_rows:
                     st.dataframe(pd.DataFrame(diff_rows), use_container_width=True, hide_index=True)
@@ -763,7 +1016,7 @@ if uploaded_file is not None:
 * **AI Model Transcription Time:** `{transcription_time:.2f} seconds`
 * **Total End-to-End Pipeline Runtime:** `{total_execution_time:.2f} seconds`
 * **Total Words Count:** `{len(all_words_list)}`
-* **Gemini AI Enhanced:** `{gemini_applied} ({gemini_model})`
+* **AI Enhanced:** `{ai_applied} ({ai_provider_name}: {active_model_name})`
 * **Filler Words Filtered:** `{remove_fillers} ({removed_fillers_count} removed)`
 * **Punctuation Removed:** `{remove_punctuation}`
 * **Case Mode:** `{case_mode}`
@@ -780,7 +1033,9 @@ if uploaded_file is not None:
         processed_json = {
             "text": "\n".join([process_text(s.get("text", ""), remove_punctuation, case_mode) for s in processed_segments]),
             "duration_seconds": duration_seconds,
-            "gemini_enhanced": gemini_applied,
+            "ai_enhanced": ai_applied,
+            "ai_provider": ai_provider if ai_applied else None,
+            "ai_model": active_model_name if ai_applied else None,
             "segments": []
         }
         for seg in processed_segments:
