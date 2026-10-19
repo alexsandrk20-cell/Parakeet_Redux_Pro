@@ -21,6 +21,35 @@ st.set_page_config(
 PUNCTUATION_CHARS = set(string.punctuation.replace("-", "") + "«»—–…„“”")
 
 ENV_FILE = os.path.join(os.path.dirname(__file__), ".env")
+SYSTEM_PROMPT_FILE = os.path.join(os.path.dirname(__file__), "system_prompt.txt")
+
+def load_system_prompt() -> str:
+    """Loads system prompt from system_prompt.txt if present, otherwise returns DEFAULT_SYSTEM_PROMPT."""
+    if os.path.exists(SYSTEM_PROMPT_FILE):
+        try:
+            with open(SYSTEM_PROMPT_FILE, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+                if content:
+                    return content
+        except Exception:
+            pass
+    return DEFAULT_SYSTEM_PROMPT
+
+def save_system_prompt(prompt_text: str) -> None:
+    """Saves custom system prompt to system_prompt.txt."""
+    try:
+        with open(SYSTEM_PROMPT_FILE, "w", encoding="utf-8") as f:
+            f.write(prompt_text.strip())
+    except Exception:
+        pass
+
+def reset_system_prompt() -> None:
+    """Resets system prompt to DEFAULT_SYSTEM_PROMPT by removing system_prompt.txt."""
+    try:
+        if os.path.exists(SYSTEM_PROMPT_FILE):
+            os.remove(SYSTEM_PROMPT_FILE)
+    except Exception:
+        pass
 
 def load_env_config() -> dict[str, str]:
     """Loads key-value configuration from local .env file and environment variables."""
@@ -31,6 +60,7 @@ def load_env_config() -> dict[str, str]:
         "OPENAI_BASE_URL": os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
         "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY", ""),
         "OPENAI_MODEL": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+        "AI_BATCH_SIZE": os.environ.get("AI_BATCH_SIZE", "25"),
     }
     if os.path.exists(ENV_FILE):
         try:
@@ -146,6 +176,40 @@ def fetch_openai_models(base_url: str, api_key: str) -> tuple[bool, list[str], s
         return True, sorted_models, f"Успешно подтянуто моделей: {len(sorted_models)}"
     except Exception as e:
         return False, [], f"Не удалось подтянуть модели: {e}"
+
+DEFAULT_SYSTEM_PROMPT = (
+    "Ты — элитный лингвистический редактор и корректор субтитров для профессионального видеомонтажа.\n"
+    "Твоя задача — тщательно ПЕРЕПРОВЕРИТЬ каждое слово в расшифровке аудиозаписи, исправить ВСЕ ошибки распознавания речи (ASR) "
+    "и выдать идеально грамотный, чистый русский текст, точно соответствующий смыслу произнесенного.\n\n"
+    "### 1. ГЛУБОКАЯ ПЕРЕПРОВЕРКА СЛОВ И ФОНЕТИЧЕСКИХ ОШИБОК (ASR):\n"
+    "- Модели распознавания часто путают созвучные слова, подставляя бессмыслицу. Тщательно вчитывайся в контекст предложения и восстанавливай реальные слова, которые имел в виду спикер.\n"
+    "- Исправляй слуховые ошибки и ошибочные разбивки/склейки слов (например: «до жили» → «дожили», «авто матическому» → «автоматическому», «в ряд ли» → «вряд ли», «не уже ли» → «неужели»).\n"
+    "- Исправляй окончания, падежи, склонения и спряжения, если модель ASR ошиблась в согласовании слов в предложении (например: согласование с предлогами «с людьми», «про глоссарий», «с человеком», «обо мне»).\n\n"
+    "### 2. ОРФОГРАФИЯ, ДЕФИСЫ И СЛИТНОЕ/РАЗДЕЛЬНОЕ НАПИСАНИЕ:\n"
+    "- Наречия и частицы через дефис: «наконец-то», «из-за», «из-под», «по-русски», «по-моему», «как-то», «что-нибудь», «во-первых», «кое-как», «все-таки».\n"
+    "- Слитное и раздельное написание: «также» (в значении «тоже») vs «так же» (как именно), «чтобы» (союз цели) vs «что бы» (местоимение с частицей), «поэтому», «ввиду», «вместе», «в течение».\n"
+    "- Частицы НЕ/НИ: «не знаю», «не был», «ни разу», «никто», «ничего», «несмотря на».\n"
+    "- Устраняй просторечные ошибки: «вообщем» → «в общем», «ихний» → «их», «ложить» → «класть».\n\n"
+    "### 3. АНГЛИЙСКИЕ СЛОВА, БРЕНДЫ И ТЕРМИНЫ — СТРОГО НА АНГЛИЙСКОМ (ЛАТИНИЦЕЙ):\n"
+    "- ЖЕЛЕЗНОЕ ПРАВИЛО: ЕСЛИ СЛОВО АНГЛИЙСКОЕ, ОНО ОБЯЗАНО ПИСАТЬСЯ НА АНГЛИЙСКОМ (латиницей), а не русскими буквами!\n"
+    "- Если модель распознавания записала английское слово русской транскрипцией на слух, ОБЯЗАТЕЛЬНО замени его на оригинальное английское написание:\n"
+    "  • Программы и сервисы: «давинчи резолв» → DaVinci Resolve, «премьер про» → Premiere Pro, «капкат» → CapCut, «файнал кат» → Final Cut, «афтер эффектс» → After Effects, «фотошоп» → Photoshop, «миджорни» → Midjourney, «комфи юай» → ComfyUI, «ранвей» → Runway, «стейбл дифьюжн» → Stable Diffusion, «блендер» → Blender.\n"
+    "  • Нейросети, платформы и IT: «чат гпт» / «чатгпт» → ChatGPT, «клод» → Claude, «джемини» → Gemini, «дипсик» → DeepSeek, «опенаи» → OpenAI, «антропик» → Anthropic, «ви whisper» → Whisper, «паракит» → Parakeet, «элевен лабс» → ElevenLabs, «пайтон» → Python, «гит» → Git, «гитхаб» → GitHub, «докер» → Docker.\n"
+    "  • Соцсети и форматы: «шортс» → Shorts, «рилс» → Reels, «тикток» → TikTok, «ютуб» → YouTube, «инстаграм» → Instagram, «телеграм» → Telegram, «подкаст» → Podcast.\n"
+    "  • Монтажные и технические термины, аббревиатуры: «промпт» → Prompt, «таймлайн» → Timeline, «рендер» → Render, «битрейт» → Bitrate, «кейфрейм» → Keyframe, «б-ролл» → B-roll, «пресет» → Preset, «плагин» → Plugin, «скрипт» → Script, «апи» → API, «гпу» / «джипию» → GPU, «цпу» → CPU, «ртх» → RTX, «куда» → CUDA, «фпс» → FPS, «хдр» → HDR, «сдр» → SDR, «фулл хд» → Full HD, «4к» → 4K, «окей» → OK, «хай» → Hi, «лайк» → Like, «чекнуть» / «чек» → Check.\n"
+    "- Никакой русской транслитерации для английских терминов («премьер», «капкат», «шортс», «пайтон», «гпу» запрещены — только Premiere, CapCut, Shorts, Python, GPU)!\n\n"
+    "### 4. УДАЛЕНИЕ РЕЧЕВОГО МУСОРА И ЗАМИНОК:\n"
+    "- Полностью удаляй звуки заминки речи: «э-э», «мм», «а-а», «эээ», «угу», «гм».\n"
+    "- Вырезай заикания, фальстарты и случайные повторы слов (например: «мы мы наконец» → «мы наконец»).\n"
+    "- Убирай паразиты («ну», «типа», «короче», «как бы», «в общем-то», «так сказать»), если они служат заполнителями пауз.\n\n"
+    "### 5. СОХРАНЕНИЕ АВТОРСКОГО СТИЛЯ (СТРОГОЕ ПРАВИЛО):\n"
+    "- НЕЛЬЗЯ пересказывать, сокращать или перефразировать автора! Зритель должен слышать ровно то, что видит в субтитрах.\n"
+    "- Исправляй ТОЛЬКО ошибки, оговорки и мусор. Живую авторскую речь, терминологию и порядок слов оставляй неизменными.\n\n"
+    "### 6. СТРОГИЙ ФОРМАТ ОТВЕТА (JSON):\n"
+    "- Верни строго JSON-массив объектов с теми же `id`: [{\"id\": 0, \"text\": \"...\"}].\n"
+    "- Порядок и количество элементов должны строго совпадать с входящими.\n"
+    "- Если фрагмент состоял исключительно из заминки («э-э», «ну»), верни text: \"\"."
+)
 
 DEFAULT_FILLER_WORDS = [
     # Русские звуки заминки и междометия
@@ -338,26 +402,17 @@ def enhance_transcript_with_gemini(
     segments: list[dict],
     api_key: str,
     model_name: str = "gemini-3.5-flash",
-    batch_size: int = 50,
+    batch_size: int = 25,
     progress_bar = None,
-    status_text = None
+    status_text = None,
+    system_instruction: str = None
 ) -> list[dict]:
     """Uses Google Gemini API to fix transcription errors, remove speech fillers, and polish words while preserving and aligning timestamps."""
     from google import genai
     from google.genai import types
 
     client = genai.Client(api_key=api_key.strip())
-    
-    system_instruction = (
-        "Ты — профессиональный редактор субтитров для видеомонтажа. "
-        "Твоя цель — сделать так, чтобы субтитры точно соответствовали звучащей речи, но были грамотными, чистыми и без мусора:\n"
-        "1. Исправь ошибки распознавания речи (ASR): фонетические искажения, опечатки, неправильно услышанные технические термины и названия "
-        "(Claude, ChatGPT, Codex, Kimi, DaVinci, Premiere, нейросеть, localhost, Git и т.д.), падежи и окончания.\n"
-        "2. Полностью удали слова-паразиты, звуки заминки речи (э-э, мм, ну, типа, короче, как бы, в общем, так сказать и т.д.), заикания и случайные повторы слов.\n"
-        "3. ВАЖНО: НЕ ПЕРЕСКАЗЫВАЙ и НЕ ПЕРЕФРАЗИРУЙ речь! Сохраняй авторские формулировки и структуру предложений, чтобы зритель слышал ровно то, что написано в субтитрах.\n"
-        "4. Сохрани количество и порядок переданных сегментов. Верни строго валидный JSON-массив объектов: [{\"id\": 0, \"text\": \"...\"}]. "
-        "Если фрагмент состоял исключительно из заминки или паразитов, верни text: \"\"."
-    )
+    instruction_to_use = system_instruction if system_instruction else DEFAULT_SYSTEM_PROMPT
     
     all_corrections = {}
     total_segments = len(segments)
@@ -369,14 +424,19 @@ def enhance_transcript_with_gemini(
         
         items_to_send = [{"id": start_idx + j, "text": seg.get("text", "")} for j, seg in enumerate(batch)]
         prompt = (
-            f"Вот сегменты речи #{start_idx + 1}–#{end_idx} (всего {len(items_to_send)}) в формате JSON:\n"
+            f"Вот фрагменты распознанной речи #{start_idx + 1}–#{end_idx} (всего {len(items_to_send)}) в формате JSON:\n"
             f"{json.dumps(items_to_send, ensure_ascii=False, indent=2)}\n\n"
-            "Исправь ошибки и удали слова-паразиты. Сохраняй авторские слова, не перефразируй! "
-            "Верни строго валидный JSON-массив объектов с полями id и text."
+            "ЗАДАНИЕ: Внимательно перепроверь каждое слово по контексту.\n"
+            "1. Исправь все слуховые ошибки распознавания (ASR), опечатки, падежные окончания и дефисы («наконец-то», «из-за»).\n"
+            "2. СТРОЖАЙШЕЕ ПРАВИЛО: ЕСЛИ СЛОВО АНГЛИЙСКОЕ, ТЕРМИН ИЛИ БРЕНД — ОНО ОБЯЗАНО ПИСАТЬСЯ НА АНГЛИЙСКОМ ЛАТИНИЦЕЙ "
+            "(DaVinci Resolve, Premiere Pro, CapCut, ChatGPT, Shorts, Reels, TikTok, YouTube, Python, API, GPU, Render, Timeline, Keyframe, Preset, OK и т.д.). Никакой русской транслитерации для английских слов!\n"
+            "3. Удали речевой мусор и звуки заминки («э-э», «ну»).\n"
+            "4. Сохраняй авторские слова и порядок предложений (не пересказывай!).\n"
+            "Верни строго валидный JSON-массив объектов: [{\"id\": ..., \"text\": \"...\"}]."
         )
         
         if status_text is not None:
-            status_text.text(f"✨ Gemini ({model_name}): обработка сегментов {start_idx + 1}–{end_idx} из {total_segments}...")
+            status_text.text(f"✨ Gemini ({model_name}): проверка сегментов {start_idx + 1}–{end_idx} из {total_segments}...")
             
         models_to_try = [model_name]
         for fallback_candidate in ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-flash-lite-latest"]:
@@ -391,7 +451,7 @@ def enhance_transcript_with_gemini(
                     model=try_m,
                     contents=prompt,
                     config=types.GenerateContentConfig(
-                        system_instruction=system_instruction,
+                        system_instruction=instruction_to_use,
                         response_mime_type="application/json"
                     )
                 )
@@ -459,9 +519,10 @@ def enhance_transcript_with_openai_compatible(
     base_url: str,
     api_key: str,
     model_name: str = "gpt-4o-mini",
-    batch_size: int = 50,
+    batch_size: int = 25,
     progress_bar = None,
-    status_text = None
+    status_text = None,
+    system_instruction: str = None
 ) -> list[dict]:
     """Uses an OpenAI-compatible API (OpenRouter, vLLM, DeepSeek, Local LLM)
     to fix transcription errors, remove speech fillers, and polish words while preserving and aligning timestamps."""
@@ -484,16 +545,7 @@ def enhance_transcript_with_openai_compatible(
     except Exception:
         pass
     
-    system_instruction = (
-        "Ты — профессиональный редактор субтитров для видеомонтажа. "
-        "Твоя цель — сделать так, чтобы субтитры точно соответствовали звучащей речи, но были грамотными, чистыми и без мусора:\n"
-        "1. Исправь ошибки распознавания речи (ASR): фонетические искажения, опечатки, неправильно услышанные технические термины и названия "
-        "(Claude, ChatGPT, Codex, Kimi, DaVinci, Premiere, нейросеть, localhost, Git и т.д.), падежи и окончания.\n"
-        "2. Полностью удали слова-паразиты, звуки заминки речи (э-э, мм, ну, типа, короче, как бы, в общем, так сказать и т.д.), заикания и случайные повторы слов.\n"
-        "3. ВАЖНО: НЕ ПЕРЕСКАЗЫВАЙ и НЕ ПЕРЕФРАЗИРУЙ речь! Сохраняй авторские формулировки и структуру предложений, чтобы зритель слышал ровно то, что написано в субтитрах.\n"
-        "4. Сохрани количество и порядок переданных сегментов. Верни строго валидный JSON-массив объектов: [{\"id\": 0, \"text\": \"...\"}]. "
-        "Если фрагмент состоял исключительно из заминки или паразитов, верни text: \"\"."
-    )
+    instruction_to_use = system_instruction if system_instruction else DEFAULT_SYSTEM_PROMPT
     
     all_corrections = {}
     total_segments = len(segments)
@@ -504,21 +556,26 @@ def enhance_transcript_with_openai_compatible(
         
         items_to_send = [{"id": start_idx + j, "text": seg.get("text", "")} for j, seg in enumerate(batch)]
         prompt = (
-            f"Вот сегменты речи #{start_idx + 1}–#{end_idx} (всего {len(items_to_send)}) в формате JSON:\n"
+            f"Вот фрагменты распознанной речи #{start_idx + 1}–#{end_idx} (всего {len(items_to_send)}) в формате JSON:\n"
             f"{json.dumps(items_to_send, ensure_ascii=False, indent=2)}\n\n"
-            "Исправь ошибки и удали слова-паразиты. Сохраняй авторские слова, не перефразируй! "
-            "Верни строго валидный JSON-массив объектов с полями id и text."
+            "ЗАДАНИЕ: Внимательно перепроверь каждое слово по контексту.\n"
+            "1. Исправь все слуховые ошибки распознавания (ASR), опечатки, падежные окончания и дефисы («наконец-то», «из-за»).\n"
+            "2. СТРОЖАЙШЕЕ ПРАВИЛО: ЕСЛИ СЛОВО АНГЛИЙСКОЕ, ТЕРМИН ИЛИ БРЕНД — ОНО ОБЯЗАНО ПИСАТЬСЯ НА АНГЛИЙСКОМ ЛАТИНИЦЕЙ "
+            "(DaVinci Resolve, Premiere Pro, CapCut, ChatGPT, Shorts, Reels, TikTok, YouTube, Python, API, GPU, Render, Timeline, Keyframe, Preset, OK и т.д.). Никакой русской транслитерации для английских слов!\n"
+            "3. Удали речевой мусор и звуки заминки («э-э», «ну»).\n"
+            "4. Сохраняй авторские слова и порядок предложений (не пересказывай!).\n"
+            "Верни строго валидный JSON-массив объектов: [{\"id\": ..., \"text\": \"...\"}]."
         )
         
         if status_text is not None:
-            status_text.text(f"✨ AI ({resolved_model}): обработка сегментов {start_idx + 1}–{end_idx} из {total_segments}...")
+            status_text.text(f"✨ AI ({resolved_model}): проверка сегментов {start_idx + 1}–{end_idx} из {total_segments}...")
             
         raw_text = ""
         try:
             resp = client.chat.completions.create(
                 model=resolved_model,
                 messages=[
-                    {"role": "system", "content": system_instruction},
+                    {"role": "system", "content": instruction_to_use},
                     {"role": "user", "content": prompt}
                 ],
                 response_format={"type": "json_object"}
@@ -528,7 +585,7 @@ def enhance_transcript_with_openai_compatible(
             resp = client.chat.completions.create(
                 model=resolved_model,
                 messages=[
-                    {"role": "system", "content": system_instruction},
+                    {"role": "system", "content": instruction_to_use},
                     {"role": "user", "content": prompt}
                 ]
             )
@@ -993,6 +1050,11 @@ with st.sidebar:
     openai_base_url = saved_config.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
     openai_api_key = saved_config.get("OPENAI_API_KEY", "")
     openai_model = saved_config.get("OPENAI_MODEL", "gpt-4o-mini")
+    custom_system_prompt = load_system_prompt()
+    try:
+        ai_batch_size = int(saved_config.get("AI_BATCH_SIZE", 25))
+    except (ValueError, TypeError):
+        ai_batch_size = 25
     
     if use_ai:
         ai_provider = st.radio(
@@ -1131,6 +1193,39 @@ with st.sidebar:
                 updates["AI_PROVIDER"] = "openai_compatible"
             if updates:
                 save_env_config(updates)
+                
+        with st.expander("📝 Системный промт и правила AI-проверки слов", expanded=False):
+            st.markdown(
+                "Правила перепроверки каждого слова нейросетью: глубокий контекстный анализ, "
+                "исправление слуховых ошибок ASR, падежей, дефисов (`наконец-то`, `из-за`, `по-русски`), "
+                "названий софта и технологий, удаление звуков заминки без изменения авторского стиля."
+            )
+            edited_prompt = st.text_area(
+                "Системный промт (System Instruction):",
+                value=custom_system_prompt,
+                height=260,
+                help="Нейросеть руководствуется этим промтом при анализе каждого сегмента и слова."
+            )
+            ai_batch_size = st.slider(
+                "Размер пачки (сегментов за один запрос):",
+                min_value=5,
+                max_value=50,
+                value=min(max(ai_batch_size, 5), 50),
+                step=5,
+                help="Рекомендуется 20–25: чем меньше размер пачки, тем внимательнее AI вычитывает каждое слово, не пропуская мелких опечаток."
+            )
+            col_save_p, col_reset_p = st.columns(2)
+            if col_save_p.button("💾 Сохранить промт", use_container_width=True):
+                save_system_prompt(edited_prompt)
+                save_env_config({"AI_BATCH_SIZE": str(ai_batch_size)})
+                st.toast("✅ Системный промт и настройки AI сохранены!")
+                st.rerun()
+            if col_reset_p.button("🔄 Сбросить к рекомендованному", use_container_width=True):
+                reset_system_prompt()
+                save_env_config({"AI_BATCH_SIZE": "25"})
+                st.toast("🔄 Системный промт сброшен к рекомендованному!")
+                st.rerun()
+            custom_system_prompt = edited_prompt
     
     st.markdown("---")
     st.subheader("🚫 Локальный фильтр паразитов")
@@ -1281,7 +1376,8 @@ if uploaded_file is not None:
         ai_applied = False
         active_model_name = gemini_model if ai_provider == "gemini" else openai_model
         ai_provider_name = "Google Gemini" if ai_provider == "gemini" else "Совместимый с OpenAI"
-        ai_cache_key = f"ai_{file_id}_{ai_provider}_{active_model_name}_{remove_fillers}"
+        prompt_hash = abs(hash(custom_system_prompt))
+        ai_cache_key = f"ai_{file_id}_{ai_provider}_{active_model_name}_{remove_fillers}_{prompt_hash}_{ai_batch_size}"
         
         if use_ai:
             active_key = gemini_api_key.strip() if ai_provider == "gemini" else openai_api_key.strip()
@@ -1300,9 +1396,10 @@ if uploaded_file is not None:
                                 processed_segments,
                                 api_key=gemini_api_key.strip(),
                                 model_name=gemini_model,
-                                batch_size=50,
+                                batch_size=ai_batch_size,
                                 progress_bar=progress_bar,
-                                status_text=status_text
+                                status_text=status_text,
+                                system_instruction=custom_system_prompt
                             )
                         else:
                             enhanced = enhance_transcript_with_openai_compatible(
@@ -1310,9 +1407,10 @@ if uploaded_file is not None:
                                 base_url=openai_base_url.strip(),
                                 api_key=openai_api_key.strip(),
                                 model_name=openai_model.strip(),
-                                batch_size=50,
+                                batch_size=ai_batch_size,
                                 progress_bar=progress_bar,
-                                status_text=status_text
+                                status_text=status_text,
+                                system_instruction=custom_system_prompt
                             )
                         st.session_state[ai_cache_key] = enhanced
                         processed_segments = enhanced
