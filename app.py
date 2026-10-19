@@ -61,6 +61,7 @@ def load_env_config() -> dict[str, str]:
         "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY", ""),
         "OPENAI_MODEL": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
         "AI_BATCH_SIZE": os.environ.get("AI_BATCH_SIZE", "25"),
+        "ACTIVE_PROMPT_PRESET": os.environ.get("ACTIVE_PROMPT_PRESET", "🎯 Универсальный (Редактор субтитров)"),
     }
     if os.path.exists(ENV_FILE):
         try:
@@ -229,6 +230,106 @@ DEFAULT_SYSTEM_PROMPT = (
     "- Порядок и количество элементов должны строго совпадать с входящими.\n"
     "- Если фрагмент состоял исключительно из заминки («э-э», «ну»), верни text: \"\"."
 )
+
+PROMPT_PRESET_SHORTS = (
+    "Ты — элитный редактор динамичных клиповых субтитров формата 9:16 для Shorts, Reels и TikTok.\n"
+    "Твоя задача — превратить расшифровку в идеальный, ритмичный текст для быстрого вертикального видео.\n\n"
+    "### 1. СТРОГИЕ ПРАВИЛА ТИПОГРАФИКИ 9:16:\n"
+    "- ПРЕДЛОГИ И МЕСТОИМЕНИЯ НА КОНЦАХ СТРОК СТРОГО ЗАПРЕЩЕНЫ: предлоги («в», «на», «с», «к», «по», «из» и др.), "
+    "короткие местоимения («я», «мы», «он», «она», «это») и отрицательные частицы («не», «ни») НИКОГДА не должны оставаться в конце строки! "
+    "Они всегда переносятся на новую строку вместе со своим словом («Я думаю», «с людьми», «не закрыл»).\n"
+    "- ОДИНОЧНЫЕ МЕСТОИМЕНИЯ ЗАПРЕЩЕНЫ: Местоимения («я», «мы») никогда не должны быть отдельной одиночной строкой — только в составе смысловой фразы.\n\n"
+    "### 2. БРЕНДЫ, СОФТ И IT-ТЕРМИНЫ — ТОЛЬКО ЛАТИНИЦЕЙ:\n"
+    "- Все названия платформ, программ и технологий пиши строго на английском: Shorts, Reels, TikTok, YouTube, Telegram, Instagram, "
+    "CapCut, Premiere Pro, DaVinci Resolve, Final Cut, After Effects, Photoshop, ChatGPT, Midjourney, ComfyUI, Python, GPU, API.\n"
+    "- Никакой кириллицы для английских названий!\n\n"
+    "### 3. РЕЧЕВОЙ МУСОР И ДИНАМИКА:\n"
+    "- Полностью удаляй заминки («э-э», «ну», «мм»), заикания и фальстарты.\n"
+    "- Сохраняй авторский темп и эмоциональный посыл речи без изменения смысла.\n\n"
+    "### 4. САМОПРОВЕРКА И ФОРМАТ (JSON):\n"
+    "- Перепроверь: нет ли висячих предлогов/местоимений на концах строк, все ли бренды латиницей.\n"
+    "- Верни строго JSON-массив объектов: [{\"id\": 0, \"text\": \"...\"}]."
+)
+
+PROMPT_PRESET_PODCAST = (
+    "Ты — профессиональный редактор стенограмм и субтитров для подкастов, интервью и разговорных видео.\n"
+    "Твоя задача — бережно вычитать текст, сохранив уникальный живой голос и интонацию спикеров.\n\n"
+    "### 1. СОХРАНЕНИЕ ЖИВОЙ РЕЧИ:\n"
+    "- Максимально сохраняй авторские формулировки, шутки, разговорные обороты и авторский стиль.\n"
+    "- Удаляй исключительно явные звуки заминки («э-э», «эээ», «мм»), кашель и случайные оговорки/фальстарты.\n\n"
+    "### 2. ГРАМОТНОСТЬ И ПУНКТУАЦИЯ:\n"
+    "- Расставляй выразительную пунктуацию (тире, многоточия, запятые, вопросительные знаки), отражающую интонационные паузы спикера.\n"
+    "- Исправляй слуховые ошибки распознавания речи (ASR), согласуй падежные окончания и дефисы («все-таки», «по-моему»).\n\n"
+    "### 3. ТЕРМИНОЛОГИЯ И ПЕРЕНОС СТРОК:\n"
+    "- Упомянутые спикерами термины, имена брендов и сервисов пиши в их общепринятом виде (на английском латиницей, если это зарубежный софт или термин).\n"
+    "- Предлоги и местоимения переноси вперед к зависимым словам, не оставляя висячих слов в конце строк.\n\n"
+    "### 4. САМОПРОВЕРКА И ФОРМАТ (JSON):\n"
+    "- Перепроверь согласованность реплик и верни строго JSON-массив: [{\"id\": 0, \"text\": \"...\"}]."
+)
+
+PROMPT_PRESET_TECH = (
+    "Ты — технический редактор субтитров для IT-туториалов, уроков программирования и видео про технологии.\n"
+    "Твоя задача — обеспечить безупречную точность технических терминов, названий библиотек, кода и софта.\n\n"
+    "### 1. ТЕХНИЧЕСКИЕ ТЕРМИНЫ — 100% НА АНГЛИЙСКОМ (ЛАТИНИЦЕЙ):\n"
+    "- Все названия языков программирования, библиотек, фреймворков, софта, архитектур и команд пиши строго на английском:\n"
+    "  • Python, C++, Rust, JavaScript, TypeScript, Go, HTML, CSS, SQL.\n"
+    "  • PyTorch, TensorFlow, CUDA, cuDNN, GPU, CPU, RTX, TensorRT, HuggingFace.\n"
+    "  • Docker, Kubernetes, Linux, Ubuntu, Git, GitHub, GitLab, Terminal, Bash, PowerShell.\n"
+    "  • API, REST, JSON, Webhook, Backend, Frontend, Cloud, AWS, GCP, Azure.\n"
+    "  • DaVinci Resolve, Premiere Pro, CapCut, Blender, ComfyUI, Stable Diffusion, Whisper, Parakeet.\n"
+    "- Никакой кириллической транслитерации для технического сленга!\n\n"
+    "### 2. ПЕРЕНОС ПРЕДЛОГОВ И МЕСТОИМЕНИЙ:\n"
+    "- Предлоги («в», «на», «с», «к», «по», «для») и местоимения («я», «мы», «он») никогда не должны висеть в конце строк. Они переносятся к термину или глаголу.\n"
+    "- Одиночные местоимения в отдельную строку строго запрещены.\n\n"
+    "### 3. САМОПРОВЕРКА И ФОРМАТ (JSON):\n"
+    "- Перепроверь каждое IT-название и синтаксис. Верни строго JSON-массив: [{\"id\": 0, \"text\": \"...\"}]."
+)
+
+BUILTIN_PROMPT_PRESETS = {
+    "🎯 Универсальный (Редактор субтитров)": DEFAULT_SYSTEM_PROMPT,
+    "📱 Клиповый 9:16 (Shorts / Reels / TikTok)": PROMPT_PRESET_SHORTS,
+    "🎙️ Подкасты и длинные интервью": PROMPT_PRESET_PODCAST,
+    "💻 IT, разработка и туториалы": PROMPT_PRESET_TECH,
+}
+
+CUSTOM_PROMPTS_FILE = os.path.join(os.path.dirname(__file__), "custom_prompts.json")
+
+def load_custom_prompts() -> dict[str, str]:
+    """Loads user-saved custom prompt presets from custom_prompts.json."""
+    if os.path.exists(CUSTOM_PROMPTS_FILE):
+        try:
+            with open(CUSTOM_PROMPTS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+        except Exception:
+            pass
+    return {}
+
+def save_custom_prompts(prompts: dict[str, str]) -> None:
+    """Saves user custom prompt presets to custom_prompts.json."""
+    try:
+        with open(CUSTOM_PROMPTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(prompts, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+def load_all_prompt_presets() -> dict[str, str]:
+    """Returns combined dictionary of built-in and user-custom prompt presets."""
+    presets = dict(BUILTIN_PROMPT_PRESETS)
+    customs = load_custom_prompts()
+    for k, v in customs.items():
+        presets[k] = v
+    if "✍️ Свой промт (Пользовательский)" not in presets:
+        custom_txt = ""
+        if os.path.exists(SYSTEM_PROMPT_FILE):
+            try:
+                with open(SYSTEM_PROMPT_FILE, "r", encoding="utf-8") as f:
+                    custom_txt = f.read().strip()
+            except Exception:
+                pass
+        presets["✍️ Свой промт (Пользовательский)"] = custom_txt if custom_txt else DEFAULT_SYSTEM_PROMPT
+    return presets
 
 DEFAULT_FILLER_WORDS = [
     # Русские звуки заминки и междометия
@@ -1592,18 +1693,44 @@ with st.sidebar:
             if updates:
                 save_env_config(updates)
                 
-        with st.expander("📝 Системный промт и правила AI-проверки слов", expanded=False):
+        st.markdown("---")
+        st.markdown("#### 📝 Системный промт AI")
+        
+        all_presets = load_all_prompt_presets()
+        active_preset = saved_config.get("ACTIVE_PROMPT_PRESET", "🎯 Универсальный (Редактор субтитров)")
+        if active_preset not in all_presets:
+            active_preset = list(all_presets.keys())[0]
+
+        selected_preset = st.selectbox(
+            "Выбор системного промта:",
+            options=list(all_presets.keys()),
+            index=list(all_presets.keys()).index(active_preset),
+            help="Выберите готовый профиль промта под ваш тип контента или создайте свой собственный"
+        )
+
+        if st.session_state.get("last_selected_preset") != selected_preset:
+            st.session_state["last_selected_preset"] = selected_preset
+            st.session_state["current_prompt_text"] = all_presets.get(selected_preset, DEFAULT_SYSTEM_PROMPT)
+            save_env_config({"ACTIVE_PROMPT_PRESET": selected_preset})
+            save_system_prompt(st.session_state["current_prompt_text"])
+
+        if "current_prompt_text" not in st.session_state:
+            st.session_state["current_prompt_text"] = all_presets.get(selected_preset, DEFAULT_SYSTEM_PROMPT)
+
+        with st.expander("✏️ Просмотр и редактирование промта", expanded=False):
             st.markdown(
-                "Правила перепроверки каждого слова нейросетью: глубокий контекстный анализ, "
-                "исправление слуховых ошибок ASR, падежей, дефисов (`наконец-то`, `из-за`, `по-русски`), "
-                "названий софта и технологий, удаление звуков заминки без изменения авторского стиля."
+                "Правила перепроверки слов нейросетью: глубокий контекстный анализ, "
+                "исправление ошибок ASR, падежей, дефисов (`наконец-то`, `из-за`), "
+                "названий софта и технологий латиницей, перенос предлогов/местоимений, удаление заминок."
             )
             edited_prompt = st.text_area(
-                "Системный промт (System Instruction):",
-                value=custom_system_prompt,
+                f"Инструкция для AI ({selected_preset}):",
+                value=st.session_state["current_prompt_text"],
                 height=260,
                 help="Нейросеть руководствуется этим промтом при анализе каждого сегмента и слова."
             )
+            st.session_state["current_prompt_text"] = edited_prompt
+
             ai_batch_size = st.slider(
                 "Размер пачки (сегментов за один запрос):",
                 min_value=5,
@@ -1612,18 +1739,74 @@ with st.sidebar:
                 step=5,
                 help="Рекомендуется 20–25: чем меньше размер пачки, тем внимательнее AI вычитывает каждое слово, не пропуская мелких опечаток."
             )
+
             col_save_p, col_reset_p = st.columns(2)
-            if col_save_p.button("💾 Сохранить промт", use_container_width=True):
+            if col_save_p.button("💾 Применить и сохранить", use_container_width=True):
                 save_system_prompt(edited_prompt)
-                save_env_config({"AI_BATCH_SIZE": str(ai_batch_size)})
-                st.toast("✅ Системный промт и настройки AI сохранены!")
+                if selected_preset not in BUILTIN_PROMPT_PRESETS or selected_preset == "✍️ Свой промт (Пользовательский)":
+                    customs = load_custom_prompts()
+                    customs[selected_preset] = edited_prompt
+                    save_custom_prompts(customs)
+                save_env_config({
+                    "ACTIVE_PROMPT_PRESET": selected_preset,
+                    "AI_BATCH_SIZE": str(ai_batch_size)
+                })
+                st.toast(f"✅ Промт '{selected_preset}' успешно применён и сохранён!")
                 st.rerun()
-            if col_reset_p.button("🔄 Сбросить к рекомендованному", use_container_width=True):
-                reset_system_prompt()
-                save_env_config({"AI_BATCH_SIZE": "25"})
-                st.toast("🔄 Системный промт сброшен к рекомендованному!")
+
+            if col_reset_p.button("🔄 Восстановить стандартный", use_container_width=True):
+                if selected_preset in BUILTIN_PROMPT_PRESETS:
+                    default_txt = BUILTIN_PROMPT_PRESETS[selected_preset]
+                else:
+                    default_txt = DEFAULT_SYSTEM_PROMPT
+                st.session_state["current_prompt_text"] = default_txt
+                save_system_prompt(default_txt)
+                if selected_preset in load_custom_prompts():
+                    customs = load_custom_prompts()
+                    customs[selected_preset] = default_txt
+                    save_custom_prompts(customs)
+                save_env_config({
+                    "ACTIVE_PROMPT_PRESET": selected_preset,
+                    "AI_BATCH_SIZE": "25"
+                })
+                st.toast("🔄 Текст промта сброшен к исходному шаблону!")
                 st.rerun()
-            custom_system_prompt = edited_prompt
+
+            st.markdown("---")
+            st.caption("➕ **Сохранить текущий текст как новый пресет:**")
+            new_preset_col1, new_preset_col2 = st.columns([3, 2])
+            new_preset_name = new_preset_col1.text_input(
+                "Название нового пресета:",
+                placeholder="Например, Мой Блог",
+                label_visibility="collapsed"
+            )
+            if new_preset_col2.button("➕ Добавить", use_container_width=True):
+                clean_name = new_preset_name.strip()
+                if clean_name:
+                    full_name = f"✍️ {clean_name}" if not clean_name.startswith("✍️") else clean_name
+                    customs = load_custom_prompts()
+                    customs[full_name] = edited_prompt
+                    save_custom_prompts(customs)
+                    save_env_config({"ACTIVE_PROMPT_PRESET": full_name})
+                    save_system_prompt(edited_prompt)
+                    st.session_state["last_selected_preset"] = full_name
+                    st.session_state["current_prompt_text"] = edited_prompt
+                    st.toast(f"✅ Создан новый пресет: '{full_name}'!")
+                    st.rerun()
+                else:
+                    st.warning("Введите название пресета!")
+
+            if selected_preset not in BUILTIN_PROMPT_PRESETS and selected_preset != "✍️ Свой промт (Пользовательский)":
+                if st.button(f"🗑️ Удалить пресет '{selected_preset}'", use_container_width=True):
+                    customs = load_custom_prompts()
+                    if selected_preset in customs:
+                        del customs[selected_preset]
+                        save_custom_prompts(customs)
+                    save_env_config({"ACTIVE_PROMPT_PRESET": "🎯 Универсальный (Редактор субтитров)"})
+                    st.toast(f"🗑️ Пресет '{selected_preset}' удалён!")
+                    st.rerun()
+
+        custom_system_prompt = st.session_state.get("current_prompt_text", edited_prompt)
     
     st.markdown("---")
     st.subheader("🚫 Локальный фильтр паразитов")
