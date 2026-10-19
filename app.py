@@ -1258,11 +1258,6 @@ with st.sidebar:
         value=True,
         help="Автоматически заменяет все буквы «ё» и «Ё» на «е» и «Е» в тексте и субтитрах"
     )
-    remove_pauses_default = st.checkbox(
-        "⚡ Убрать паузы между субтитрами",
-        value=True,
-        help="Режим «Без пауз» (Gapless): устраняет зазоры между титрами, растягивая каждый блок до начала следующего"
-    )
     case_mode = st.radio(
         "Регистр букв (Case):",
         options=["upper", "none", "lower", "title"],
@@ -1585,20 +1580,7 @@ if uploaded_file is not None:
 
         # Tab 3: Subtitles preview
         with tab_subtitles:
-            top_h1, top_h2 = st.columns([1, 1])
-            with top_h1:
-                st.markdown("#### 📱 Клиповые субтитры 9:16 (Shorts / Reels / TikTok)")
-            with top_h2:
-                remove_gaps_toggle = st.toggle(
-                    "⚡ Убрать паузы (Режим без пауз / Gapless)",
-                    value=remove_pauses_default,
-                    help="Устраняет любые зазоры между титрами: титры идут непрерывным потоком без черных кадров"
-                )
-
-            if remove_gaps_toggle:
-                st.success("⚡ Режим «УБРАТЬ ПАУЗЫ» активен: конец каждого титра состыкован со стартом следующего без зазоров.")
-            else:
-                st.info("⏱️ Режим «С паузами»: сохранены естественные паузы тишины между репликами.")
+            st.markdown("#### 📱 Клиповые субтитры 9:16 (Shorts / Reels / TikTok)")
 
             # Dedicated prominent button right in Tab 3
             btn_t1, btn_t2 = st.columns(2)
@@ -1638,11 +1620,11 @@ if uploaded_file is not None:
             sub_col1, sub_col2 = st.columns(2)
             with sub_col1:
                 st.markdown("##### 📄 Стандартные субтитры (по предложениям)")
-                st.text_area("SRT Preview", srt_standard_gapless if remove_gaps_toggle else srt_standard, height=240)
+                st.text_area("SRT Preview", srt_standard, height=240)
             with sub_col2:
                 st.markdown("##### ⏱️ Пословные субтитры (Караоке / Word-by-Word)")
                 if srt_word_level:
-                    st.text_area("Word-level SRT Preview", srt_word_level_gapless if remove_gaps_toggle else srt_word_level, height=240)
+                    st.text_area("Word-level SRT Preview", srt_word_level, height=240)
                 else:
                     st.info("Пословные субтитры доступны при выборе режима 'По словам'.")
         
@@ -1770,7 +1752,7 @@ if uploaded_file is not None:
         
         dcol1.download_button(
             label="🎬 Обычные (.srt)",
-            data=srt_standard_gapless if remove_gaps_toggle else srt_standard,
+            data=srt_standard,
             file_name=f"{base_name}.srt",
             mime="text/plain",
             use_container_width=True
@@ -1778,7 +1760,7 @@ if uploaded_file is not None:
         if srt_word_level:
             dcol2.download_button(
                 label="⏱️ Пословный SRT (.srt)",
-                data=srt_word_level_gapless if remove_gaps_toggle else srt_word_level,
+                data=srt_word_level,
                 file_name=f"{base_name}_words.srt",
                 mime="text/plain",
                 use_container_width=True
