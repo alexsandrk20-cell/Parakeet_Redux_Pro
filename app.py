@@ -1295,8 +1295,9 @@ SUPPORTED_FORMATS = [
 ]
 
 uploaded_file = st.file_uploader(
-    "Загрузите видео или аудио файл для локальной транскрибации",
-    type=SUPPORTED_FORMATS
+    "Загрузите видео или аудио файл для локальной транскрибации (до 10 ГБ)",
+    type=SUPPORTED_FORMATS,
+    help="Поддерживаются видео и аудиофайлы любого разрешения размером до 10 ГБ"
 )
 
 if uploaded_file is not None:

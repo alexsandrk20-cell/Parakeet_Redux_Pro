@@ -1,0 +1,9 @@
+[server]
+# Maximum file upload size in MB (10240 MB = 10 GB)
+maxUploadSize = 10240
+# Maximum websocket message size in MB (10240 MB = 10 GB)
+maxMessageSize = 10240
+enableXsrfProtection = false
+
+[browser]
+gatherUsageStats = false
