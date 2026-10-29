@@ -63,6 +63,15 @@ def load_env_config() -> dict[str, str]:
         "OPENAI_MODEL": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
         "AI_BATCH_SIZE": os.environ.get("AI_BATCH_SIZE", "25"),
         "ACTIVE_PROMPT_PRESET": os.environ.get("ACTIVE_PROMPT_PRESET", "🎯 Универсальный (Редактор субтитров)"),
+        "MAX_CHARS_9_16": os.environ.get("MAX_CHARS_9_16", "20"),
+        "MAX_WORDS_9_16": os.environ.get("MAX_WORDS_9_16", "4"),
+        "STANDALONE_LEN_9_16": os.environ.get("STANDALONE_LEN_9_16", "16"),
+        "REMOVE_PAUSES": os.environ.get("REMOVE_PAUSES", "true"),
+        "REMOVE_PUNCTUATION": os.environ.get("REMOVE_PUNCTUATION", "true"),
+        "REPLACE_YO_CHAR": os.environ.get("REPLACE_YO_CHAR", "true"),
+        "CASE_MODE": os.environ.get("CASE_MODE", "upper"),
+        "REMOVE_FILLERS": os.environ.get("REMOVE_FILLERS", "true"),
+        "CUSTOM_FILLER_WORDS": os.environ.get("CUSTOM_FILLER_WORDS", ""),
     }
     if os.path.exists(ENV_FILE):
         try:
@@ -2163,13 +2172,28 @@ def generate_9_16_phone_widget(preview_items: list[dict]) -> str:
     captionText.className = 'caption-text ' + cls;
     document.querySelectorAll('.theme-pill').forEach(b => b.classList.remove('active'));
     if (btn) btn.classList.add('active');
+    try { localStorage.setItem('parakeet_phone_theme', cls); } catch(e){}
   };
 
   window.setFontSize = function(sz, btn) {
     captionText.style.fontSize = sz;
     document.querySelectorAll('.font-pill').forEach(b => b.classList.remove('active'));
     if (btn) btn.classList.add('active');
+    try { localStorage.setItem('parakeet_phone_fontsize', sz); } catch(e){}
   };
+
+  try {
+    const savedTheme = localStorage.getItem('parakeet_phone_theme');
+    if (savedTheme) {
+      const tb = Array.from(document.querySelectorAll('.theme-pill')).find(b => b.getAttribute('onclick')?.includes(savedTheme));
+      if (tb) setTheme(savedTheme, tb);
+    }
+    const savedSize = localStorage.getItem('parakeet_phone_fontsize');
+    if (savedSize) {
+      const fb = Array.from(document.querySelectorAll('.font-pill')).find(b => b.getAttribute('onclick')?.includes(savedSize));
+      if (fb) setFontSize(savedSize, fb);
+    }
+  } catch(e){}
 
   window.filterSubs = function() {
     const q = document.getElementById('searchInput').value.toLowerCase();
@@ -2250,6 +2274,29 @@ with st.sidebar:
         ai_batch_size = int(saved_config.get("AI_BATCH_SIZE", 25))
     except (ValueError, TypeError):
         ai_batch_size = 25
+
+    try:
+        saved_max_chars_9_16 = int(saved_config.get("MAX_CHARS_9_16", 20))
+    except (ValueError, TypeError):
+        saved_max_chars_9_16 = 20
+
+    try:
+        saved_max_words_9_16 = int(saved_config.get("MAX_WORDS_9_16", 4))
+    except (ValueError, TypeError):
+        saved_max_words_9_16 = 4
+
+    try:
+        saved_standalone_len_9_16 = int(saved_config.get("STANDALONE_LEN_9_16", 16))
+    except (ValueError, TypeError):
+        saved_standalone_len_9_16 = 16
+
+    saved_remove_pauses = saved_config.get("REMOVE_PAUSES", "true").lower() in ("true", "1", "yes")
+    saved_remove_punctuation = saved_config.get("REMOVE_PUNCTUATION", "true").lower() in ("true", "1", "yes")
+    saved_replace_yo_char = saved_config.get("REPLACE_YO_CHAR", "true").lower() in ("true", "1", "yes")
+    saved_case_mode = saved_config.get("CASE_MODE", "upper")
+    if saved_case_mode not in ["upper", "none", "lower", "title"]:
+        saved_case_mode = "upper"
+    saved_remove_fillers = saved_config.get("REMOVE_FILLERS", "true").lower() in ("true", "1", "yes")
     
     if use_ai:
         ai_provider = st.radio(
@@ -2508,16 +2555,18 @@ with st.sidebar:
     st.subheader("🚫 Локальный фильтр паразитов")
     remove_fillers = st.checkbox(
         "Удалять слова-паразиты по словарю",
-        value=True,
+        value=saved_remove_fillers,
         help="Быстро вырезает звуки заминки (ээ, мм, эм), ну, короче, типа, как бы и др."
     )
     
     single_fillers, multi_fillers = set(), []
+    saved_fillers_text = saved_config.get("CUSTOM_FILLER_WORDS", "").strip()
+    fillers_input = saved_fillers_text if saved_fillers_text else ", ".join(DEFAULT_FILLER_WORDS)
     if remove_fillers:
         with st.expander("⚙️ Настроить словарь слов-паразитов", expanded=False):
             fillers_input = st.text_area(
                 "Слова и выражения для удаления (через запятую):",
-                value=", ".join(DEFAULT_FILLER_WORDS),
+                value=fillers_input,
                 height=120,
                 help="Вы можете отредактировать этот список: добавить свои слова или удалить те, которые хотите оставить"
             )
@@ -2527,36 +2576,91 @@ with st.sidebar:
     st.subheader("📝 Очистка и регистр текста")
     remove_punctuation = st.checkbox(
         "✂️ Убирать знаки препинания",
-        value=True,
+        value=saved_remove_punctuation,
         help="Удаляет точки, запятые, тире, кавычки и знаки препинания, сохраняя внутрисловные дефисы (наконец-то, из-за, по-русски)"
     )
     replace_yo_char = st.checkbox(
         "🔤 Заменять букву «ё» на «е»",
-        value=True,
+        value=saved_replace_yo_char,
         help="Автоматически заменяет все буквы «ё» и «Ё» на «е» и «Е» в тексте и субтитрах"
     )
     remove_pauses = st.checkbox(
         "⚡ Убрать паузы между субтитрами",
-        value=True,
+        value=saved_remove_pauses,
         help="Режим «Без пауз» (Gapless): устраняет зазоры между титрами, растягивая каждый блок до начала следующего. Действует на все типы субтитров (9:16, обычные, пословные)."
     )
+    case_options = ["upper", "none", "lower", "title"]
+    case_index = case_options.index(saved_case_mode) if saved_case_mode in case_options else 0
     case_mode = st.radio(
         "Регистр букв (Case):",
-        options=["upper", "none", "lower", "title"],
+        options=case_options,
         format_func=lambda x: {
             "upper": "🔠 ВСЕ СЛОВА В ВЕРХНИЙ РЕГИСТР (UPPERCASE)",
             "none": "🔤 Оригинальный регистр (Как распознано)",
             "lower": "🔡 все слова в нижний регистр (lowercase)",
             "title": "🔠 Каждое Слово С Заглавной (Title Case)"
         }[x],
-        index=0,
+        index=case_index,
         help="Выберите форматирование регистра для слов и субтитров"
     )
     
     with st.expander("📱 Настройки субтитров 9:16 (Shorts / Reels)", expanded=False):
-        max_chars_9_16 = st.slider("Макс. символов в строке:", min_value=12, max_value=30, value=20, step=1, help="Рекомендуется 18-22 символа для идеального отображения в Shorts / Reels")
-        max_words_9_16 = st.slider("Макс. слов в блоке:", min_value=2, max_value=6, value=4, step=1, help="Объединять до указанного числа коротких слов (по умолчанию 4)")
-        standalone_len_9_16 = st.slider("Длина одиночного слова:", min_value=10, max_value=24, value=16, step=1, help="Слова длиннее этого значения могут стоять отдельной строкой (по умолчанию 16)")
+        max_chars_9_16 = st.slider(
+            "Макс. символов в строке:",
+            min_value=12,
+            max_value=30,
+            value=min(max(saved_max_chars_9_16, 12), 30),
+            step=1,
+            help="Рекомендуется 18-22 символа для идеального отображения в Shorts / Reels"
+        )
+        max_words_9_16 = st.slider(
+            "Макс. слов в блоке:",
+            min_value=2,
+            max_value=6,
+            value=min(max(saved_max_words_9_16, 2), 6),
+            step=1,
+            help="Объединять до указанного числа коротких слов (по умолчанию 4)"
+        )
+        standalone_len_9_16 = st.slider(
+            "Длина одиночного слова:",
+            min_value=10,
+            max_value=24,
+            value=min(max(saved_standalone_len_9_16, 10), 24),
+            step=1,
+            help="Слова длиннее этого значения могут стоять отдельной строкой (по умолчанию 16)"
+        )
+        st.caption("💾 Настройки сохраняются автоматически для следующих запусков.")
+        if st.button("🔄 Сбросить настройки 9:16 к стандарту", use_container_width=True):
+            save_env_config({
+                "MAX_CHARS_9_16": "20",
+                "MAX_WORDS_9_16": "4",
+                "STANDALONE_LEN_9_16": "16"
+            })
+            st.rerun()
+
+    # Auto-save changes in subtitle & Reels 9:16 settings to .env
+    sub_updates = {}
+    if str(max_chars_9_16) != saved_config.get("MAX_CHARS_9_16"):
+        sub_updates["MAX_CHARS_9_16"] = str(max_chars_9_16)
+    if str(max_words_9_16) != saved_config.get("MAX_WORDS_9_16"):
+        sub_updates["MAX_WORDS_9_16"] = str(max_words_9_16)
+    if str(standalone_len_9_16) != saved_config.get("STANDALONE_LEN_9_16"):
+        sub_updates["STANDALONE_LEN_9_16"] = str(standalone_len_9_16)
+    if ("true" if remove_pauses else "false") != saved_config.get("REMOVE_PAUSES"):
+        sub_updates["REMOVE_PAUSES"] = "true" if remove_pauses else "false"
+    if ("true" if remove_punctuation else "false") != saved_config.get("REMOVE_PUNCTUATION"):
+        sub_updates["REMOVE_PUNCTUATION"] = "true" if remove_punctuation else "false"
+    if ("true" if replace_yo_char else "false") != saved_config.get("REPLACE_YO_CHAR"):
+        sub_updates["REPLACE_YO_CHAR"] = "true" if replace_yo_char else "false"
+    if case_mode != saved_config.get("CASE_MODE"):
+        sub_updates["CASE_MODE"] = case_mode
+    if ("true" if remove_fillers else "false") != saved_config.get("REMOVE_FILLERS"):
+        sub_updates["REMOVE_FILLERS"] = "true" if remove_fillers else "false"
+    if fillers_input != saved_config.get("CUSTOM_FILLER_WORDS", ""):
+        sub_updates["CUSTOM_FILLER_WORDS"] = fillers_input
+
+    if sub_updates:
+        save_env_config(sub_updates)
     
     st.markdown("---")
     st.markdown(
