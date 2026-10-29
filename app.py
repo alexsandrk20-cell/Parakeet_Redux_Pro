@@ -699,7 +699,7 @@ def enhance_transcript_with_openai_compatible(
     
     clean_base_url = base_url.strip().rstrip("/")
     clean_key = api_key.strip()
-    client = OpenAI(base_url=clean_base_url, api_key=clean_key, timeout=35.0)
+    client = OpenAI(base_url=clean_base_url, api_key=clean_key, timeout=120.0)
     
     # Auto-resolve model_name against available models if short name was passed
     resolved_model = model_name.strip()
@@ -766,29 +766,42 @@ def enhance_transcript_with_openai_compatible(
             status_text.text(f"✨ AI ({resolved_model}): проверка сегментов {start_idx + 1}–{end_idx} из {total_segments}...")
             
         raw_text = ""
-        try:
-            resp = client.chat.completions.create(
-                model=resolved_model,
-                messages=[
-                    {"role": "system", "content": instruction_to_use},
-                    {"role": "user", "content": prompt}
-                ],
-                response_format={"type": "json_object"}
-            )
-            raw_text = resp.choices[0].message.content or ""
-        except Exception as api_err:
-            err_msg = str(api_err).lower()
-            if "response_format" in err_msg or "json_object" in err_msg or "schema" in err_msg:
-                resp = client.chat.completions.create(
-                    model=resolved_model,
-                    messages=[
-                        {"role": "system", "content": instruction_to_use},
-                        {"role": "user", "content": prompt}
-                    ]
-                )
-                raw_text = resp.choices[0].message.content or ""
-            else:
-                raise api_err
+        for attempt in range(2):
+            try:
+                try:
+                    resp = client.chat.completions.create(
+                        model=resolved_model,
+                        messages=[
+                            {"role": "system", "content": instruction_to_use},
+                            {"role": "user", "content": prompt}
+                        ],
+                        response_format={"type": "json_object"}
+                    )
+                    raw_text = resp.choices[0].message.content or ""
+                except Exception as api_err:
+                    err_msg = str(api_err).lower()
+                    if "response_format" in err_msg or "json_object" in err_msg or "schema" in err_msg:
+                        resp = client.chat.completions.create(
+                            model=resolved_model,
+                            messages=[
+                                {"role": "system", "content": instruction_to_use},
+                                {"role": "user", "content": prompt}
+                            ]
+                        )
+                        raw_text = resp.choices[0].message.content or ""
+                    else:
+                        raise api_err
+                break
+            except Exception as batch_err:
+                err_str = str(batch_err).lower()
+                if attempt == 0 and ("timeout" in err_str or "timed out" in err_str or "connection" in err_str or "502" in err_str or "503" in err_str or "504" in err_str):
+                    if status_text is not None:
+                        status_text.text(f"⏳ Сервер отвечает медленно. Повторная попытка для сегментов {start_idx + 1}–{end_idx}...")
+                    import time
+                    time.sleep(2.0)
+                    continue
+                else:
+                    raise batch_err
             
         raw_text = raw_text.strip()
         if raw_text.startswith("```json"):
@@ -2690,14 +2703,41 @@ if uploaded_file is not None:
                         ai_applied = True
                     except Exception as ge:
                         err_text = str(ge)
-                        if "429" in err_text or "RESOURCE_EXHAUSTED" in err_text:
-                            st.warning(
-                                "⚠️ **Исчерпан суточный лимит бесплатных запросов Google Gemini (Free Tier: 20 запросов в день на модель).**\n\n"
-                                "👉 **Как продолжить:**\n"
-                                "1. В боковом меню выберите модель **`gemini-3.5-flash`** или **`gemini-3.5-flash-lite`** (у них отдельная свежая квота).\n"
-                                "2. Либо переключитесь на **«🌐 Свой API (Совместимый с OpenAI)»**.\n"
-                                "3. Локальная транскрибация Parakeet Redux полностью сохранена и доступна ниже."
-                            )
+                        if "429" in err_text or "RESOURCE_EXHAUSTED" in err_text or "rate limit" in err_text.lower():
+                            if ai_provider == "gemini":
+                                st.warning(
+                                    "⚠️ **Исчерпан суточный лимит бесплатных запросов Google Gemini (Free Tier: 20 запросов в день на модель).**\n\n"
+                                    "👉 **Как продолжить:**\n"
+                                    "1. В боковом меню выберите модель **`gemini-3.5-flash`** или **`gemini-3.5-flash-lite`** (у них отдельная свежая квота).\n"
+                                    "2. Либо переключитесь на **«🌐 Свой API (Совместимый с OpenAI)»**.\n"
+                                    "3. Локальная транскрибация Parakeet Redux полностью сохранена и доступна ниже."
+                                )
+                            else:
+                                st.warning(
+                                    f"⚠️ **Ошибка 429 (Слишком много запросов / исчерпан лимит тарифа):**\n\n"
+                                    f"Сервер `{openai_base_url}` временно ограничил запросы для модели `{active_model_name}` (Rate Limit или исчерпан баланс токенов).\n\n"
+                                    "👉 **Как продолжить:**\n"
+                                    "1. В боковом меню выберите быструю и доступную модель (например, **`qwen3.8-max`**, **`qwen-max`** или **`kimi-k3.1-pro-highspeed`**).\n"
+                                    "2. Подождите 1–2 минуты и нажмите кнопку **«🔄 Повторить обработку AI»** ниже.\n"
+                                    "3. Проверьте баланс и лимиты в личном кабинете вашего API-провайдера.\n"
+                                    "4. Локальная транскрибация Parakeet Redux полностью сохранена и доступна ниже."
+                                )
+                        elif "timed out" in err_text.lower() or "timeout" in err_text.lower():
+                            if ai_provider == "gemini":
+                                st.warning(
+                                    "⚠️ **Превышено время ожидания ответа Google Gemini (Timeout):**\n\n"
+                                    "Сервер Google не успел ответить вовремя. Попробуйте повторить запрос или уменьшить размер пачки сегментов."
+                                )
+                            else:
+                                st.warning(
+                                    f"⚠️ **Превышено время ожидания ответа AI (Request timed out):**\n\n"
+                                    f"Модель `{active_model_name}` на сервере `{openai_base_url}` отвечала дольше 120 секунд.\n\n"
+                                    "👉 **Как исправить:**\n"
+                                    "1. **Смените модель на быструю:** модель `kimi-k3.1-pro` очень тяжелая и отвечает крайне медленно (~90 сек на пачку). Выберите в боковом меню **`qwen3.8-max`**, **`qwen-max`** (отвечают за 3–10 секунд) или **`kimi-k3.1-pro-highspeed`**.\n"
+                                    "2. **Уменьшите размер пачки (батча):** в блоке «Настройка системного промпта» снизьте ползунок *«Размер пачки»* до **10–15** сегментов.\n"
+                                    "3. Нажмите **«🔄 Повторить попытку обработки через AI»** ниже.\n"
+                                    "4. Локальная транскрибация Parakeet Redux полностью сохранена и доступна ниже."
+                                )
                         elif "404" in err_text or "page not found" in err_text.lower():
                             st.warning(
                                 f"⚠️ **Ошибка 404 (Модель не найдена на сервере):**\n\n"
@@ -2717,8 +2757,12 @@ if uploaded_file is not None:
                         progress_bar.empty()
                         status_text.empty()
         
-        if use_ai and ai_applied:
+        if use_ai:
             if st.sidebar.button("🔄 Повторить обработку AI"):
+                st.session_state.pop(ai_cache_key, None)
+                st.rerun()
+        if use_ai and not ai_applied and active_key:
+            if st.button("🔄 Повторить попытку обработки через AI", key="retry_ai_main_btn", use_container_width=True):
                 st.session_state.pop(ai_cache_key, None)
                 st.rerun()
         
