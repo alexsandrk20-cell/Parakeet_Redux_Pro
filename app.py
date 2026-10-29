@@ -768,29 +768,14 @@ def enhance_transcript_with_openai_compatible(
         raw_text = ""
         for attempt in range(2):
             try:
-                try:
-                    resp = client.chat.completions.create(
-                        model=resolved_model,
-                        messages=[
-                            {"role": "system", "content": instruction_to_use},
-                            {"role": "user", "content": prompt}
-                        ],
-                        response_format={"type": "json_object"}
-                    )
-                    raw_text = resp.choices[0].message.content or ""
-                except Exception as api_err:
-                    err_msg = str(api_err).lower()
-                    if "response_format" in err_msg or "json_object" in err_msg or "schema" in err_msg:
-                        resp = client.chat.completions.create(
-                            model=resolved_model,
-                            messages=[
-                                {"role": "system", "content": instruction_to_use},
-                                {"role": "user", "content": prompt}
-                            ]
-                        )
-                        raw_text = resp.choices[0].message.content or ""
-                    else:
-                        raise api_err
+                resp = client.chat.completions.create(
+                    model=resolved_model,
+                    messages=[
+                        {"role": "system", "content": instruction_to_use},
+                        {"role": "user", "content": prompt}
+                    ]
+                )
+                raw_text = resp.choices[0].message.content or ""
                 break
             except Exception as batch_err:
                 err_str = str(batch_err).lower()
@@ -803,16 +788,23 @@ def enhance_transcript_with_openai_compatible(
                 else:
                     raise batch_err
             
-        raw_text = raw_text.strip()
-        if raw_text.startswith("```json"):
-            raw_text = raw_text[7:]
-        elif raw_text.startswith("```"):
-            raw_text = raw_text[3:]
-        if raw_text.endswith("```"):
-            raw_text = raw_text[:-3]
+        # Robustly extract JSON block anywhere in raw_text
+        clean_text = raw_text.strip()
+        if "```json" in clean_text:
+            clean_text = clean_text.split("```json", 1)[1].split("```", 1)[0].strip()
+        elif "```" in clean_text:
+            clean_text = clean_text.split("```", 1)[1].split("```", 1)[0].strip()
+        elif "[" in clean_text and "]" in clean_text:
+            first_bracket = clean_text.find("[")
+            last_bracket = clean_text.rfind("]")
+            clean_text = clean_text[first_bracket:last_bracket+1].strip()
+        elif "{" in clean_text and "}" in clean_text:
+            first_brace = clean_text.find("{")
+            last_brace = clean_text.rfind("}")
+            clean_text = clean_text[first_brace:last_brace+1].strip()
             
         try:
-            parsed = json.loads(raw_text.strip())
+            parsed = json.loads(clean_text)
             if isinstance(parsed, dict):
                 for v in parsed.values():
                     if isinstance(v, list):
