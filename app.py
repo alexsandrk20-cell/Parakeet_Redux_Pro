@@ -566,6 +566,7 @@ def enhance_transcript_with_gemini(
 
     client = genai.Client(api_key=api_key.strip())
     instruction_to_use = system_instruction if system_instruction else DEFAULT_SYSTEM_PROMPT
+    batch_size = int(batch_size) if batch_size else 25
     
     all_corrections = {}
     total_segments = len(segments)
@@ -733,6 +734,7 @@ def enhance_transcript_with_openai_compatible(
         if fb not in models_to_try and (not avail_ids or fb in avail_ids):
             models_to_try.append(fb)
             
+    batch_size = int(batch_size) if batch_size else 25
     all_corrections = {}
     total_segments = len(segments)
     
