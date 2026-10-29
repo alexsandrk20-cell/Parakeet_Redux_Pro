@@ -180,10 +180,11 @@ def fetch_openai_models(base_url: str, api_key: str) -> tuple[bool, list[str], s
         raw_ids = [str(m.id) for m in res.data if getattr(m, 'id', None)]
         if not raw_ids:
             return False, [], "Сервер ответил, но список моделей пуст."
-        # Prioritize chat/instruct/flash/large models at the top
-        chat_models = sorted([m for m in raw_ids if any(k in m.lower() for k in ["chat", "instruct", "flash", "it", "large", "mini", "gpt", "llama", "deepseek"])])
-        other_models = sorted([m for m in raw_ids if m not in chat_models])
-        sorted_models = chat_models + other_models
+        # Prioritize verified fast stable models (qwen-max, gpt-4o-mini) at the very top
+        top_picks = [m for m in raw_ids if m in ["qwen-max", "gpt-4o-mini", "kimi-k3.1-pro-highspeed"]]
+        chat_models = sorted([m for m in raw_ids if m not in top_picks and any(k in m.lower() for k in ["qwen", "kimi", "chat", "instruct", "flash", "it", "large", "mini", "gpt", "llama", "deepseek"])])
+        other_models = sorted([m for m in raw_ids if m not in top_picks and m not in chat_models])
+        sorted_models = top_picks + chat_models + other_models
         return True, sorted_models, f"Успешно подтянуто моделей: {len(sorted_models)}"
     except Exception as e:
         return False, [], f"Не удалось подтянуть модели: {e}"
@@ -708,12 +709,13 @@ def enhance_transcript_with_openai_compatible(
     
     clean_base_url = base_url.strip().rstrip("/")
     clean_key = api_key.strip()
-    client = OpenAI(base_url=clean_base_url, api_key=clean_key, timeout=120.0)
+    client = OpenAI(base_url=clean_base_url, api_key=clean_key, max_retries=1, timeout=30.0)
     
     # Auto-resolve model_name against available models if short name was passed
     resolved_model = model_name.strip()
+    avail_ids = []
     try:
-        models_res = client.models.list()
+        models_res = client.models.list(timeout=5.0)
         avail_ids = [str(m.id) for m in models_res.data if getattr(m, 'id', None)]
         if resolved_model not in avail_ids:
             for m_id in avail_ids:
@@ -725,6 +727,12 @@ def enhance_transcript_with_openai_compatible(
     
     instruction_to_use = system_instruction if system_instruction else DEFAULT_SYSTEM_PROMPT
     
+    # Build candidate models list (active model first, then tested reliable fallbacks like qwen-max)
+    models_to_try = [resolved_model]
+    for fb in ["qwen-max", "gpt-4o-mini"]:
+        if fb not in models_to_try and (not avail_ids or fb in avail_ids):
+            models_to_try.append(fb)
+            
     all_corrections = {}
     total_segments = len(segments)
     
@@ -771,31 +779,37 @@ def enhance_transcript_with_openai_compatible(
             "Верни строго валидный JSON-массив объектов: [{\"id\": ..., \"text\": \"...\"}]."
         )
         
-        if status_text is not None:
-            status_text.text(f"✨ AI ({resolved_model}): проверка сегментов {start_idx + 1}–{end_idx} из {total_segments}...")
-            
         raw_text = ""
-        for attempt in range(2):
+        last_batch_err = None
+        for try_m in models_to_try:
+            if status_text is not None:
+                status_text.text(f"✨ AI ({try_m}): проверка сегментов {start_idx + 1}–{end_idx} из {total_segments}...")
             try:
                 resp = client.chat.completions.create(
-                    model=resolved_model,
+                    model=try_m,
                     messages=[
                         {"role": "system", "content": instruction_to_use},
                         {"role": "user", "content": prompt}
-                    ]
+                    ],
+                    timeout=30.0
                 )
                 raw_text = resp.choices[0].message.content or ""
+                if try_m != resolved_model and status_text is not None:
+                    status_text.text(f"✨ Модель {resolved_model} не ответила. Переключено на резервную {try_m} ✅")
+                resolved_model = try_m
+                last_batch_err = None
                 break
             except Exception as batch_err:
+                last_batch_err = batch_err
                 err_str = str(batch_err).lower()
-                if attempt == 0 and ("timeout" in err_str or "timed out" in err_str or "connection" in err_str or "502" in err_str or "503" in err_str or "504" in err_str):
-                    if status_text is not None:
-                        status_text.text(f"⏳ Сервер отвечает медленно. Повторная попытка для сегментов {start_idx + 1}–{end_idx}...")
-                    import time
-                    time.sleep(2.0)
-                    continue
-                else:
+                if "401" in err_str or "unauthorized" in err_str:
                     raise batch_err
+                if status_text is not None and len(models_to_try) > 1:
+                    status_text.text(f"⏳ Модель {try_m} задержалась. Пробуем резервную...")
+                continue
+                
+        if not raw_text and last_batch_err:
+            raise last_batch_err
             
         # Robustly extract JSON block anywhere in raw_text
         clean_text = raw_text.strip()
